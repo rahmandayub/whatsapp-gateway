@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS sessions (
+    session_id VARCHAR(255) PRIMARY KEY,
+    webhook_url TEXT,
+    status VARCHAR(50) DEFAULT 'DISCONNECTED',
+    whatsapp_id VARCHAR(50),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
