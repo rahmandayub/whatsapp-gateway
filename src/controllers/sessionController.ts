@@ -1,8 +1,9 @@
+import { Request, Response } from 'express';
 import whatsAppService from '../services/whatsappService.js';
 import QRCode from 'qrcode';
 import fs from 'fs';
 
-export const startSession = async (req, res) => {
+export const startSession = async (req: Request, res: Response) => {
     try {
         const { sessionId, webhookUrl } = req.body;
         if (!sessionId) {
@@ -15,12 +16,12 @@ export const startSession = async (req, res) => {
             webhookUrl,
         );
         res.json(result);
-    } catch (error) {
+    } catch (error: any) {
         res.status(500).json({ status: 'error', message: error.message });
     }
 };
 
-export const getSessionStatus = (req, res) => {
+export const getSessionStatus = (req: Request, res: Response) => {
     try {
         const { sessionId } = req.params;
         const result = whatsAppService.getSessionStatus(sessionId);
@@ -30,41 +31,41 @@ export const getSessionStatus = (req, res) => {
                 .json({ status: 'not_found', message: 'Session not found' });
         }
         res.json(result);
-    } catch (error) {
+    } catch (error: any) {
         res.status(500).json({ status: 'error', message: error.message });
     }
 };
 
-export const getSessions = async (req, res) => {
+export const getSessions = async (req: Request, res: Response) => {
     try {
         const sessions = await whatsAppService.getAllSessions();
         res.json({ sessions });
-    } catch (error) {
+    } catch (error: any) {
         res.status(500).json({ status: 'error', message: error.message });
     }
 };
 
-export const stopSession = async (req, res) => {
+export const stopSession = async (req: Request, res: Response) => {
     try {
         const { sessionId } = req.params;
         const result = await whatsAppService.stopSession(sessionId);
         res.json(result);
-    } catch (error) {
+    } catch (error: any) {
         res.status(500).json({ status: 'error', message: error.message });
     }
 };
 
-export const logoutSession = async (req, res) => {
+export const logoutSession = async (req: Request, res: Response) => {
     try {
         const { sessionId } = req.params;
         const result = await whatsAppService.logoutSession(sessionId);
         res.json(result);
-    } catch (error) {
+    } catch (error: any) {
         res.status(500).json({ status: 'error', message: error.message });
     }
 };
 
-export const getSessionQR = async (req, res) => {
+export const getSessionQR = async (req: Request, res: Response) => {
     try {
         const { sessionId } = req.params;
         const result = whatsAppService.getQRCode(sessionId);
@@ -82,12 +83,12 @@ export const getSessionQR = async (req, res) => {
             // Fallback to sending just the raw string if image gen fails
             res.json(result);
         }
-    } catch (error) {
+    } catch (error: any) {
         res.status(500).json({ status: 'error', message: error.message });
     }
 };
 
-export const sendText = async (req, res) => {
+export const sendText = async (req: Request, res: Response) => {
     try {
         const { sessionId } = req.params;
         const { to, message } = req.body;
@@ -103,12 +104,12 @@ export const sendText = async (req, res) => {
             message,
         );
         res.json({ status: 'success', result });
-    } catch (error) {
+    } catch (error: any) {
         res.status(500).json({ status: 'error', message: error.message });
     }
 };
 
-export const sendMedia = async (req, res) => {
+export const sendMedia = async (req: Request, res: Response) => {
     try {
         const { sessionId } = req.params;
         const { to, type, mediaUrl, caption } = req.body;
@@ -126,12 +127,12 @@ export const sendMedia = async (req, res) => {
             caption,
         );
         res.json({ status: 'success', result });
-    } catch (error) {
+    } catch (error: any) {
         res.status(500).json({ status: 'error', message: error.message });
     }
 };
 
-export const sendTemplate = async (req, res) => {
+export const sendTemplate = async (req: Request, res: Response) => {
     try {
         const { sessionId } = req.params;
         const { to, templateName, variables } = req.body;
@@ -148,18 +149,18 @@ export const sendTemplate = async (req, res) => {
             variables || {},
         );
         res.json({ status: 'success', result });
-    } catch (error) {
+    } catch (error: any) {
         res.status(500).json({ status: 'error', message: error.message });
     }
 };
 
-export const sendFile = async (req, res) => {
+export const sendFile = async (req: Request, res: Response) => {
     try {
         const { sessionId } = req.params;
         const { to } = req.body;
         // multer parses 'captions' field. If multiple, it's an array. If one, it's a string. If none, undefined/null.
         let { captions } = req.body;
-        const files = req.files;
+        const files = req.files as Express.Multer.File[];
 
         if (!to || !files || files.length === 0) {
             return res.status(400).json({
@@ -169,11 +170,11 @@ export const sendFile = async (req, res) => {
         }
 
         // Normalize captions to array to match files index
-        let captionsArray = [];
+        let captionsArray: string[] = [];
         if (Array.isArray(captions)) {
-            captionsArray = captions;
+            captionsArray = captions as string[];
         } else if (captions) {
-            captionsArray = [captions];
+            captionsArray = [captions as string];
         }
 
         const results = [];
@@ -193,7 +194,7 @@ export const sendFile = async (req, res) => {
                     status: 'success',
                     id: result?.key?.id,
                 });
-            } catch (error) {
+            } catch (error: any) {
                 console.error(
                     `Failed to send file ${file.originalname}:`,
                     error,
@@ -212,10 +213,10 @@ export const sendFile = async (req, res) => {
         }
 
         res.json({ status: 'success', results });
-    } catch (error) {
+    } catch (error: any) {
         // Cleanup remaining files on catastrophic error
         if (req.files) {
-            req.files.forEach((file) => {
+            (req.files as Express.Multer.File[]).forEach((file) => {
                 fs.unlink(file.path, () => {});
             });
         }
@@ -223,12 +224,12 @@ export const sendFile = async (req, res) => {
     }
 };
 
-export const getMessageLog = (req, res) => {
+export const getMessageLog = (req: Request, res: Response) => {
     try {
         const { sessionId } = req.params;
         const log = whatsAppService.getMessageLog(sessionId || null);
         res.json({ status: 'success', messages: log });
-    } catch (error) {
+    } catch (error: any) {
         res.status(500).json({ status: 'error', message: error.message });
     }
 };

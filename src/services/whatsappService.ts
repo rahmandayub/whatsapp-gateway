@@ -1,6 +1,11 @@
 import makeWASocket, {
     useMultiFileAuthState,
     DisconnectReason,
+    WASocket,
+    ConnectionState,
+    BaileysEventMap,
+    proto,
+    AnyMessageContent
 } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
 import pino from 'pino';
@@ -10,14 +15,45 @@ import qrcode from 'qrcode-terminal';
 import pool from '../config/database.js';
 import templateService from './templateService.js';
 
+interface SessionData {
+    sock: WASocket;
+    status: string;
+    webhookUrl?: string | null;
+    qr?: string | null;
+    whatsappId?: string;
+}
+
+interface MessageLogEntry {
+    id: string;
+    sessionId: string;
+    direction: 'incoming' | 'outgoing';
+    timestamp: string;
+    [key: string]: any;
+}
+
+interface StartSessionResponse {
+    status: string;
+    message: string;
+    sessionId?: string;
+}
+
+interface WebhookData {
+    event: string;
+    [key: string]: any;
+}
+
 class WhatsAppService {
+    private sessions: Map<string, SessionData>;
+    private messageLog: MessageLogEntry[];
+    private maxLogSize: number;
+
     constructor() {
         this.sessions = new Map();
         this.messageLog = []; // In-memory message event log (not persisted)
         this.maxLogSize = 100; // Keep last 100 messages
     }
 
-    addToLog(sessionId, direction, message) {
+    addToLog(sessionId: string, direction: 'incoming' | 'outgoing', message: any) {
         this.messageLog.unshift({
             id: Date.now().toString(),
             sessionId,
@@ -31,14 +67,14 @@ class WhatsAppService {
         }
     }
 
-    getMessageLog(sessionId = null) {
+    getMessageLog(sessionId: string | null = null) {
         if (sessionId) {
             return this.messageLog.filter((m) => m.sessionId === sessionId);
         }
         return this.messageLog;
     }
 
-    async sendWebhook(url, event, data) {
+    async sendWebhook(url: string | undefined | null, event: string, data: any) {
         if (!url) return;
         try {
             await fetch(url, {
@@ -46,12 +82,12 @@ class WhatsAppService {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ event, ...data, timestamp: Date.now() }),
             });
-        } catch (error) {
+        } catch (error: any) {
             console.error(`Failed to send webhook to ${url}:`, error.message);
         }
     }
 
-    async startSession(sessionId, webhookUrl) {
+    async startSession(sessionId: string, webhookUrl?: string | null): Promise<StartSessionResponse> {
         // DB Persistence & Ownership Check
         const client = await pool.connect();
         try {
@@ -105,7 +141,7 @@ class WhatsAppService {
         const { state, saveCreds } = await useMultiFileAuthState(authPath);
 
         const sock = makeWASocket({
-            logger: pino({ level: 'silent' }), // Suppress internal logs
+            logger: pino({ level: 'silent' }) as any, // Suppress internal logs
             printQRInTerminal: false, // We handle QR via events
             auth: state,
         });
@@ -119,7 +155,7 @@ class WhatsAppService {
 
         sock.ev.on('creds.update', saveCreds);
 
-        sock.ev.on('connection.update', async (update) => {
+        sock.ev.on('connection.update', async (update: Partial<ConnectionState>) => {
             const { connection, lastDisconnect, qr } = update;
             const sessionData = this.sessions.get(sessionId);
 
@@ -144,12 +180,11 @@ class WhatsAppService {
             }
 
             if (connection === 'close') {
-                const errorMessage =
-                    lastDisconnect.error?.message || 'Unknown Error';
-                const statusCode = lastDisconnect.error?.output?.statusCode;
+                const error = lastDisconnect?.error as Boom | undefined;
+                const errorMessage = error?.message || 'Unknown Error';
+                const statusCode = error?.output?.statusCode;
 
                 const shouldReconnect =
-                    lastDisconnect.error instanceof Boom &&
                     statusCode !== DisconnectReason.loggedOut;
 
                 console.error(`[${sessionId}] Connection closed details:`, {
@@ -240,7 +275,7 @@ class WhatsAppService {
         };
     }
 
-    getSessionStatus(sessionId) {
+    getSessionStatus(sessionId: string) {
         const session = this.sessions.get(sessionId);
         if (!session) return null;
         return {
@@ -250,7 +285,7 @@ class WhatsAppService {
         };
     }
 
-    getQRCode(sessionId) {
+    getQRCode(sessionId: string) {
         const session = this.sessions.get(sessionId);
         if (!session) return null;
         return {
@@ -294,7 +329,7 @@ class WhatsAppService {
         }
     }
 
-    async stopSession(sessionId) {
+    async stopSession(sessionId: string) {
         const session = this.sessions.get(sessionId);
         if (!session) {
             // Even if not in memory, check DB to ensure status is updated if it was stuck
@@ -317,7 +352,7 @@ class WhatsAppService {
                 ['STOPPED', sessionId],
             );
             return { status: 'success', message: 'Session stopped' };
-        } catch (error) {
+        } catch (error: any) {
             this.sessions.delete(sessionId);
             return {
                 status: 'error',
@@ -327,7 +362,7 @@ class WhatsAppService {
         }
     }
 
-    async logoutSession(sessionId) {
+    async logoutSession(sessionId: string) {
         const session = this.sessions.get(sessionId);
         const authPath = `auth_info_baileys/${sessionId}`;
 
@@ -358,7 +393,7 @@ class WhatsAppService {
                 status: 'success',
                 message: 'Session logged out and data cleared',
             };
-        } catch (error) {
+        } catch (error: any) {
             console.error(`Logout failed for ${sessionId}`, error);
             // Attempt cleanup anyway
             if (fs.existsSync(authPath)) {
@@ -376,7 +411,7 @@ class WhatsAppService {
         }
     }
 
-    async sendTextMessage(sessionId, to, text) {
+    async sendTextMessage(sessionId: string, to: string, text: string) {
         const session = this.sessions.get(sessionId);
         if (!session) throw new Error('Session not found');
 
@@ -385,19 +420,24 @@ class WhatsAppService {
         return result;
     }
 
-    async sendMediaMessage(sessionId, to, type, mediaUrl, caption) {
+    async sendMediaMessage(sessionId: string, to: string, type: 'image' | 'video' | 'document', mediaUrl: string, caption?: string) {
         const session = this.sessions.get(sessionId);
         if (!session) throw new Error('Session not found');
 
-        const result = await session.sock.sendMessage(to, {
-            [type]: { url: mediaUrl },
-            caption,
-        });
+        // Dynamically create the content object, ensuring the type is one of the allowed keys
+        // The type argument is 'image' | 'video' | 'document' which matches keys in AnyMessageContent
+        // but TypeScript needs to know that.
+        const messageContent = {
+             [type]: { url: mediaUrl },
+             caption
+        } as unknown as AnyMessageContent;
+
+        const result = await session.sock.sendMessage(to, messageContent);
 
         return result;
     }
 
-    async sendFileMessage(sessionId, to, fileObj, caption) {
+    async sendFileMessage(sessionId: string, to: string, fileObj: Express.Multer.File, caption?: string) {
         const session = this.sessions.get(sessionId);
         if (!session) throw new Error('Session not found');
 
@@ -406,7 +446,7 @@ class WhatsAppService {
         const fileName = fileObj.originalname;
 
         // Determine type based on mime
-        let messageContent = {};
+        let messageContent: AnyMessageContent = {} as AnyMessageContent;
 
         if (mimeType.startsWith('image/')) {
             messageContent = { image: buffer, caption, mimetype: mimeType };
@@ -428,7 +468,7 @@ class WhatsAppService {
         return result;
     }
 
-    async sendTemplateMessage(sessionId, to, templateName, variables) {
+    async sendTemplateMessage(sessionId: string, to: string, templateName: string, variables?: Record<string, string>) {
         const session = this.sessions.get(sessionId);
         if (!session) throw new Error('Session not found');
 

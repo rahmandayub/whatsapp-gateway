@@ -1,6 +1,29 @@
 import pool from '../config/database.js';
 
-const createTemplate = async (data) => {
+interface TemplateData {
+    name: string;
+    content: string;
+    language?: string;
+    category?: string;
+}
+
+interface TemplateUpdateData {
+    content?: string;
+    language?: string;
+    category?: string;
+}
+
+interface Template {
+    id: number;
+    name: string;
+    content: string;
+    language: string;
+    category: string | null;
+    created_at: Date;
+    updated_at: Date;
+}
+
+const createTemplate = async (data: TemplateData): Promise<Template> => {
     const { name, content, language, category } = data;
     const query = `
         INSERT INTO templates (name, content, language, category)
@@ -8,23 +31,23 @@ const createTemplate = async (data) => {
         RETURNING *
     `;
     const values = [name, content, language || 'en', category];
-    const { rows } = await pool.query(query, values);
+    const { rows } = await pool.query<Template>(query, values);
     return rows[0];
 };
 
-const getTemplateByName = async (name) => {
+const getTemplateByName = async (name: string): Promise<Template | undefined> => {
     const query = 'SELECT * FROM templates WHERE name = $1';
-    const { rows } = await pool.query(query, [name]);
+    const { rows } = await pool.query<Template>(query, [name]);
     return rows[0];
 };
 
-const getAllTemplates = async () => {
+const getAllTemplates = async (): Promise<Template[]> => {
     const query = 'SELECT * FROM templates ORDER BY created_at DESC';
-    const { rows } = await pool.query(query);
+    const { rows } = await pool.query<Template>(query);
     return rows;
 };
 
-const updateTemplate = async (name, data) => {
+const updateTemplate = async (name: string, data: TemplateUpdateData): Promise<Template | undefined> => {
     const { content, language, category } = data;
     const query = `
         UPDATE templates
@@ -36,17 +59,17 @@ const updateTemplate = async (name, data) => {
         RETURNING *
     `;
     const values = [content, language, category, name];
-    const { rows } = await pool.query(query, values);
+    const { rows } = await pool.query<Template>(query, values);
     return rows[0];
 };
 
-const deleteTemplate = async (name) => {
+const deleteTemplate = async (name: string): Promise<Template | undefined> => {
     const query = 'DELETE FROM templates WHERE name = $1 RETURNING *';
-    const { rows } = await pool.query(query, [name]);
+    const { rows } = await pool.query<Template>(query, [name]);
     return rows[0];
 };
 
-const renderTemplate = (template, variables = {}) => {
+const renderTemplate = (template: Template, variables: Record<string, string> = {}): string => {
     let rendered = template.content;
     for (const [key, value] of Object.entries(variables)) {
         // Replace {{key}} with value, globally

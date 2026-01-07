@@ -1,14 +1,15 @@
+import { Request, Response } from 'express';
 import templateService from '../services/templateService.js';
 import { logger } from '../app.js';
 
-const createTemplate = async (req, res) => {
+const createTemplate = async (req: Request, res: Response) => {
     try {
         const template = await templateService.createTemplate(req.body);
         res.status(201).json({
             status: 'success',
             data: { template },
         });
-    } catch (error) {
+    } catch (error: any) {
         if (error.code === '23505') {
             // Unique violation
             return res.status(409).json({
@@ -24,14 +25,14 @@ const createTemplate = async (req, res) => {
     }
 };
 
-const getTemplates = async (req, res) => {
+const getTemplates = async (req: Request, res: Response) => {
     try {
         const templates = await templateService.getAllTemplates();
         res.json({
             status: 'success',
             data: { templates },
         });
-    } catch (error) {
+    } catch (error: any) {
         logger.error('Error fetching templates:', error);
         res.status(500).json({
             status: 'error',
@@ -40,7 +41,7 @@ const getTemplates = async (req, res) => {
     }
 };
 
-const getTemplate = async (req, res) => {
+const getTemplate = async (req: Request, res: Response) => {
     try {
         const { name } = req.params;
         const template = await templateService.getTemplateByName(name);
@@ -54,7 +55,7 @@ const getTemplate = async (req, res) => {
             status: 'success',
             data: { template },
         });
-    } catch (error) {
+    } catch (error: any) {
         logger.error('Error fetching template:', error);
         res.status(500).json({
             status: 'error',
@@ -63,7 +64,7 @@ const getTemplate = async (req, res) => {
     }
 };
 
-const updateTemplate = async (req, res) => {
+const updateTemplate = async (req: Request, res: Response) => {
     try {
         const { name } = req.params;
         const template = await templateService.updateTemplate(name, req.body);
@@ -77,7 +78,7 @@ const updateTemplate = async (req, res) => {
             status: 'success',
             data: { template },
         });
-    } catch (error) {
+    } catch (error: any) {
         logger.error('Error updating template:', error);
         res.status(500).json({
             status: 'error',
@@ -86,7 +87,7 @@ const updateTemplate = async (req, res) => {
     }
 };
 
-const deleteTemplate = async (req, res) => {
+const deleteTemplate = async (req: Request, res: Response) => {
     try {
         const { name } = req.params;
         const template = await templateService.deleteTemplate(name);
@@ -100,7 +101,7 @@ const deleteTemplate = async (req, res) => {
             status: 'success',
             message: 'Template deleted successfully',
         });
-    } catch (error) {
+    } catch (error: any) {
         logger.error('Error deleting template:', error);
         res.status(500).json({
             status: 'error',

@@ -67,6 +67,7 @@ app.get('/health', (req, res) => {
 });
 
 // Only listen if executed directly, not when imported
+// @ts-ignore
 if (import.meta.url === `file://${process.argv[1]}`) {
     const PORT = process.env.PORT || 3000;
 
@@ -82,7 +83,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
             await pool.query(schema);
             logger.info('Database schema initialized');
         } catch (error) {
-            logger.error('Failed to initialize database schema:', error);
+            logger.error({ err: error }, 'Failed to initialize database schema');
         }
     };
 
