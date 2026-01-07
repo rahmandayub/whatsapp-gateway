@@ -1,8 +1,10 @@
 import express from 'express';
+import multer from 'multer';
 import * as sessionController from '../controllers/sessionController.js';
 import { validate, schemas } from '../middlewares/validationMiddleware.js';
 
 const router = express.Router();
+const upload = multer({ dest: 'uploads/' });
 
 router.post(
     '/start',
@@ -23,6 +25,11 @@ router.post(
     '/:sessionId/message/send/media',
     validate(schemas.sendMedia),
     sessionController.sendMedia,
+);
+router.post(
+    '/:sessionId/message/send/file',
+    upload.array('files', 10), // Limit to 10 files
+    sessionController.sendFile,
 );
 router.post(
     '/:sessionId/message/send/template',

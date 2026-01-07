@@ -19,7 +19,7 @@ const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // limit each IP to 100 requests per windowMs
+    max: 3000, // limit each IP to 3000 requests per windowMs (allows ~3 req/sec avg)
 });
 
 app.use(
@@ -49,13 +49,13 @@ app.use(
 app.use(cors());
 app.use(express.json());
 app.use(limiter);
-app.use(limiter);
 
 // Serve static files for Admin Panel
 // 'import.meta.url' logic to get __dirname equivalent in ESM if needed, but relative path often works.
 // Using process.cwd() is safer for project root relative paths.
 const publicPath = path.join(process.cwd(), 'src', 'public');
 app.use('/admin', express.static(publicPath));
+app.use(express.static(publicPath));
 
 // API Routes (Protected)
 app.use('/api/v1', apiKeyAuth); // Apply auth middleware to all /api/v1 routes

@@ -181,6 +181,9 @@ Sends an image, video, or document.
     }
     ```
 - **cURL Example:**
+
+### Send File Message
+
     ```bash
     curl -X POST http://localhost:3000/api/v1/sessions/test-session-1/message/send/media \
          -H "x-api-key: secret_key_123" \
@@ -191,6 +194,26 @@ Sends an image, video, or document.
            "caption": "Check this image",
            "mediaUrl": "https://via.placeholder.com/150"
          }'
+    ```
+
+### Send File Message (Multipart/Form-Data)
+
+Sends one or more files directly via form-data upload. Supports images, videos, audio, and documents.
+
+- **Endpoint:** `POST /sessions/{sessionId}/message/send/file`
+- **Request Body:** `multipart/form-data`
+    - `to`: Recipient ID
+    - `files`: File binaries (can be multiple)
+    - `captions`: Array of text captions, one for each file (optional)
+- **cURL Example:**
+    ```bash
+    curl -X POST http://localhost:3000/api/v1/sessions/test-session-1/message/send/file \
+         -H "x-api-key: secret_key_123" \
+         -F "to=1234567890@s.whatsapp.net" \
+         -F "files=@/path/to/image1.png" \
+         -F "captions=Caption for image 1" \
+         -F "files=@/path/to/image2.jpg" \
+         -F "captions=Caption for image 2"
     ```
 
 ---

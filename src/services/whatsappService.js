@@ -397,6 +397,37 @@ class WhatsAppService {
         return result;
     }
 
+    async sendFileMessage(sessionId, to, fileObj, caption) {
+        const session = this.sessions.get(sessionId);
+        if (!session) throw new Error('Session not found');
+
+        const buffer = fs.readFileSync(fileObj.path);
+        const mimeType = fileObj.mimetype;
+        const fileName = fileObj.originalname;
+
+        // Determine type based on mime
+        let messageContent = {};
+
+        if (mimeType.startsWith('image/')) {
+            messageContent = { image: buffer, caption, mimetype: mimeType };
+        } else if (mimeType.startsWith('video/')) {
+            messageContent = { video: buffer, caption, mimetype: mimeType };
+        } else if (mimeType.startsWith('audio/')) {
+            messageContent = { audio: buffer, mimetype: mimeType, ptt: false }; // Normal audio
+        } else {
+            // Default to document
+            messageContent = {
+                document: buffer,
+                caption,
+                mimetype: mimeType,
+                fileName: fileName,
+            };
+        }
+
+        const result = await session.sock.sendMessage(to, messageContent);
+        return result;
+    }
+
     async sendTemplateMessage(sessionId, to, templateName, variables) {
         const session = this.sessions.get(sessionId);
         if (!session) throw new Error('Session not found');

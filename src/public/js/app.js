@@ -43,6 +43,8 @@ function app() {
         sendMsgSessionId: '',
         sendMsgTo: '',
         sendMsgText: '',
+        sendMsgType: 'text', // text, file
+        sendMsgFiles: [],
 
         async init() {
             if (this.apiKey) {
@@ -109,10 +111,18 @@ function app() {
         async apiCall(endpoint, method = 'GET', body = null) {
             const headers = {
                 'x-api-key': this.apiKey,
-                'Content-Type': 'application/json',
             };
+
+            if (!(body instanceof FormData)) {
+                headers['Content-Type'] = 'application/json';
+            }
+
             const config = { method, headers };
-            if (body) config.body = JSON.stringify(body);
+
+            if (body) {
+                config.body =
+                    body instanceof FormData ? body : JSON.stringify(body);
+            }
 
             try {
                 const response = await fetch(`/api/v1${endpoint}`, config);
@@ -358,31 +368,83 @@ function app() {
         },
 
         // Send Message
+        triggerFileInput() {
+            const input = document.getElementById('hiddenFileInput');
+            if (input) input.click();
+        },
+
+        handleFileUpload(event) {
+            const newFiles = Array.from(event.target.files).map((file) => ({
+                rawFile: file,
+                caption: '',
+            }));
+            this.sendMsgFiles = [...this.sendMsgFiles, ...newFiles];
+            // Clear input value so same file can be selected again if needed
+            event.target.value = '';
+        },
+
+        removeFile(index) {
+            this.sendMsgFiles = this.sendMsgFiles.filter((_, i) => i !== index);
+        },
+
         async sendMessage() {
-            if (
-                !this.sendMsgSessionId ||
-                !this.sendMsgTo ||
-                !this.sendMsgText
-            ) {
-                return alert(
-                    'Session, recipient, and message text are required',
-                );
+            if (!this.sendMsgSessionId || !this.sendMsgTo) {
+                return alert('Session and recipient are required');
             }
 
-            const res = await this.apiCall(
-                `/sessions/${this.sendMsgSessionId}/message/send/text`,
-                'POST',
-                {
+            if (this.sendMsgType === 'text' && !this.sendMsgText) {
+                return alert('Message text is required');
+            }
+
+            if (
+                this.sendMsgType === 'file' &&
+                (!this.sendMsgFiles || this.sendMsgFiles.length === 0)
+            ) {
+                return alert('Please select files');
+            }
+
+            let endpoint = '';
+            let body = {};
+
+            if (this.sendMsgType === 'text') {
+                endpoint = `/sessions/${this.sendMsgSessionId}/message/send/text`;
+                body = {
                     to: this.sendMsgTo.includes('@')
                         ? this.sendMsgTo
                         : `${this.sendMsgTo}@s.whatsapp.net`,
                     message: this.sendMsgText,
-                },
-            );
+                };
+            } else {
+                endpoint = `/sessions/${this.sendMsgSessionId}/message/send/file`;
+                const formData = new FormData();
+                formData.append(
+                    'to',
+                    this.sendMsgTo.includes('@')
+                        ? this.sendMsgTo
+                        : `${this.sendMsgTo}@s.whatsapp.net`,
+                );
+
+                for (let i = 0; i < this.sendMsgFiles.length; i++) {
+                    // Append raw file
+                    formData.append('files', this.sendMsgFiles[i].rawFile);
+                    // Append caption
+                    formData.append(
+                        'captions',
+                        this.sendMsgFiles[i].caption || '',
+                    );
+                }
+
+                body = formData;
+            }
+
+            const res = await this.apiCall(endpoint, 'POST', body);
 
             if (res) {
                 this.openSendMessageModal = false;
                 this.sendMsgText = '';
+                this.sendMsgFiles = [];
+                // Reset file input if exists (could require refs in alpine, but simple enough for now)
+
                 alert('Message sent!');
                 this.fetchMessageLog(); // Refresh log
             }

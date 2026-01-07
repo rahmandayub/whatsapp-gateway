@@ -1,5 +1,6 @@
 import whatsAppService from '../services/whatsappService.js';
 import QRCode from 'qrcode';
+import fs from 'fs';
 
 export const startSession = async (req, res) => {
     try {
@@ -148,6 +149,76 @@ export const sendTemplate = async (req, res) => {
         );
         res.json({ status: 'success', result });
     } catch (error) {
+        res.status(500).json({ status: 'error', message: error.message });
+    }
+};
+
+export const sendFile = async (req, res) => {
+    try {
+        const { sessionId } = req.params;
+        const { to } = req.body;
+        // multer parses 'captions' field. If multiple, it's an array. If one, it's a string. If none, undefined/null.
+        let { captions } = req.body;
+        const files = req.files;
+
+        if (!to || !files || files.length === 0) {
+            return res.status(400).json({
+                status: 'error',
+                message: 'Missing parameters: to, files',
+            });
+        }
+
+        // Normalize captions to array to match files index
+        let captionsArray = [];
+        if (Array.isArray(captions)) {
+            captionsArray = captions;
+        } else if (captions) {
+            captionsArray = [captions];
+        }
+
+        const results = [];
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            const fileCaption = captionsArray[i] || ''; // Map caption to file by index
+
+            try {
+                const result = await whatsAppService.sendFileMessage(
+                    sessionId,
+                    to,
+                    file,
+                    fileCaption,
+                );
+                results.push({
+                    file: file.originalname,
+                    status: 'success',
+                    id: result?.key?.id,
+                });
+            } catch (error) {
+                console.error(
+                    `Failed to send file ${file.originalname}:`,
+                    error,
+                );
+                results.push({
+                    file: file.originalname,
+                    status: 'error',
+                    error: error.message,
+                });
+            } finally {
+                // Cleanup uploaded file immediately after processing
+                fs.unlink(file.path, (err) => {
+                    if (err) console.error('Failed to cleanup file:', err);
+                });
+            }
+        }
+
+        res.json({ status: 'success', results });
+    } catch (error) {
+        // Cleanup remaining files on catastrophic error
+        if (req.files) {
+            req.files.forEach((file) => {
+                fs.unlink(file.path, () => {});
+            });
+        }
         res.status(500).json({ status: 'error', message: error.message });
     }
 };
