@@ -36,6 +36,24 @@ const schemas = {
         mediaUrl: Joi.string().uri().required(),
         caption: Joi.string().allow('', null),
     }),
+    createTemplate: Joi.object({
+        name: Joi.string().min(3).required(),
+        content: Joi.string().required(),
+        language: Joi.string().length(2).default('en'),
+        category: Joi.string().optional(),
+    }),
+    updateTemplate: Joi.object({
+        content: Joi.string().optional(),
+        language: Joi.string().length(2).optional(),
+        category: Joi.string().optional(),
+    }),
+    sendTemplate: Joi.object({
+        to: Joi.string()
+            .required()
+            .pattern(/^[0-9]+@s\.whatsapp\.net$/),
+        templateName: Joi.string().required(),
+        variables: Joi.object().optional(),
+    }),
 };
 
 export { validate, schemas };

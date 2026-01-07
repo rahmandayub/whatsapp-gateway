@@ -195,6 +195,103 @@ Sends an image, video, or document.
 
 ---
 
+## 📝 Message Templating
+
+### Create Template
+
+Create a new message template.
+
+- **Endpoint:** `POST /templates`
+- **Request Body:**
+    ```json
+    {
+        "name": "welcome_message",
+        "content": "Hello {{name}}, welcome to our service!",
+        "category": "marketing",
+        "language": "en"
+    }
+    ```
+- **Response:**
+    ```json
+    {
+        "status": "success",
+        "data": {
+            "template": {
+                "id": 1,
+                "name": "welcome_message",
+                "content": "Hello {{name}}, welcome to our service!",
+                "language": "en",
+                "category": "marketing",
+                "created_at": "..."
+            }
+        }
+    }
+    ```
+
+### List Templates
+
+Retrieve all available templates.
+
+- **Endpoint:** `GET /templates`
+- **Response:**
+    ```json
+    {
+        "status": "success",
+        "data": {
+            "templates": [ ... ]
+        }
+    }
+    ```
+
+### Get Template
+
+Retrieve a specific template by name.
+
+- **Endpoint:** `GET /templates/{name}`
+
+### Update Template
+
+Update an existing template.
+
+- **Endpoint:** `PUT /templates/{name}`
+- **Request Body:**
+    ```json
+    {
+        "content": "Updated content {{name}}"
+    }
+    ```
+
+### Delete Template
+
+Delete a template.
+
+- **Endpoint:** `DELETE /templates/{name}`
+
+### Send Template Message
+
+Send a message using a stored template.
+
+- **Endpoint:** `POST /sessions/{sessionId}/message/send/template`
+- **Request Body:**
+    ```json
+    {
+        "to": "1234567890@s.whatsapp.net",
+        "templateName": "welcome_message",
+        "variables": {
+            "name": "John Doe"
+        }
+    }
+    ```
+- **Response:**
+    ```json
+    {
+        "status": "success",
+        "result": { ... }
+    }
+    ```
+
+---
+
 ## 🪝 Webhooks
 
 Your application should expose a webhook endpoint (e.g., `POST /webhook`) to receive real-time updates.

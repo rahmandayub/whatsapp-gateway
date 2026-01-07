@@ -8,6 +8,7 @@ import fs from 'fs';
 import path from 'path';
 import pool from './config/database.js';
 import sessionRoutes from './routes/sessionRoutes.js';
+import templateRoutes from './routes/templateRoutes.js';
 import apiKeyAuth from './middlewares/authMiddleware.js';
 import whatsAppService from './services/whatsappService.js';
 
@@ -21,13 +22,45 @@ const limiter = rateLimit({
     max: 100, // limit each IP to 100 requests per windowMs
 });
 
-app.use(helmet());
+app.use(
+    helmet({
+        contentSecurityPolicy: {
+            directives: {
+                defaultSrc: ["'self'"],
+                scriptSrc: [
+                    "'self'",
+                    "'unsafe-inline'",
+                    "'unsafe-eval'", // Alpine.js might need this
+                    'https://cdn.tailwindcss.com',
+                    'https://cdn.jsdelivr.net',
+                ],
+                styleSrc: [
+                    "'self'",
+                    "'unsafe-inline'", // Tailwind adds inline styles
+                    'https://fonts.googleapis.com',
+                ],
+                fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+                imgSrc: ["'self'", 'data:', 'https://api.qrserver.com'], // QR codes from api.qrserver.com
+                connectSrc: ["'self'"],
+            },
+        },
+    }),
+);
 app.use(cors());
 app.use(express.json());
 app.use(limiter);
-app.use(apiKeyAuth);
+app.use(limiter);
 
+// Serve static files for Admin Panel
+// 'import.meta.url' logic to get __dirname equivalent in ESM if needed, but relative path often works.
+// Using process.cwd() is safer for project root relative paths.
+const publicPath = path.join(process.cwd(), 'src', 'public');
+app.use('/admin', express.static(publicPath));
+
+// API Routes (Protected)
+app.use('/api/v1', apiKeyAuth); // Apply auth middleware to all /api/v1 routes
 app.use('/api/v1/sessions', sessionRoutes);
+app.use('/api/v1/templates', templateRoutes);
 
 app.get('/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });

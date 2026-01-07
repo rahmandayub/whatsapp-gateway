@@ -24,5 +24,14 @@ router.post(
     validate(schemas.sendMedia),
     sessionController.sendMedia,
 );
+router.post(
+    '/:sessionId/message/send/template',
+    validate(schemas.sendTemplate),
+    sessionController.sendTemplate,
+);
+
+// Message Log (in-memory, for admin display)
+router.get('/messages/log', sessionController.getMessageLog); // All sessions
+router.get('/:sessionId/messages/log', sessionController.getMessageLog); // Specific session
 
 export default router;

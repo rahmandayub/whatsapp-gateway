@@ -408,11 +408,14 @@ The API will be RESTful, using JSON for requests and responses.
 
 **Phase 3: Advanced Features and Operations (Ongoing)**
 
-- **Group Chat Support:** Create, join, send/receive group messages.
 - **Two-Factor Authentication (2FA) for Sessions:** If Baileys supports this, add a layer of security for session management.
 - **Web-based Admin Panel:** For session monitoring, client management, and debugging.
 - **Message Templating:** Support for pre-approved WhatsApp templates.
 - **High Availability:** Redundancy for all core services.
+
+**Phase 4: Future Enhancements**
+
+- **Group Chat Support:** Create, join, send/receive group messages.
 
 ---
 

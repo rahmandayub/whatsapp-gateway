@@ -8,10 +8,34 @@ import fs from 'fs';
 import path from 'path';
 import qrcode from 'qrcode-terminal';
 import pool from '../config/database.js';
+import templateService from './templateService.js';
 
 class WhatsAppService {
     constructor() {
         this.sessions = new Map();
+        this.messageLog = []; // In-memory message event log (not persisted)
+        this.maxLogSize = 100; // Keep last 100 messages
+    }
+
+    addToLog(sessionId, direction, message) {
+        this.messageLog.unshift({
+            id: Date.now().toString(),
+            sessionId,
+            direction, // 'incoming' or 'outgoing'
+            ...message,
+            timestamp: new Date().toISOString(),
+        });
+        // Trim log to max size
+        if (this.messageLog.length > this.maxLogSize) {
+            this.messageLog.pop();
+        }
+    }
+
+    getMessageLog(sessionId = null) {
+        if (sessionId) {
+            return this.messageLog.filter((m) => m.sessionId === sessionId);
+        }
+        return this.messageLog;
     }
 
     async sendWebhook(url, event, data) {
@@ -36,7 +60,15 @@ class WhatsAppService {
 
             if (rows.length > 0) {
                 const existingSession = rows[0];
-                if (existingSession.webhook_url !== webhookUrl) {
+
+                // Allow resume: if no webhookUrl provided, use the stored one
+                if (!webhookUrl) {
+                    webhookUrl = existingSession.webhook_url;
+                } else if (
+                    existingSession.webhook_url &&
+                    existingSession.webhook_url !== webhookUrl
+                ) {
+                    // Ownership check only if both are provided and differ
                     return {
                         status: 'error',
                         message:
@@ -170,7 +202,25 @@ class WhatsAppService {
             if (!sessionData) return;
 
             for (const msg of messages) {
-                if (!msg.key.fromMe && sessionData.webhookUrl) {
+                // Log all messages (incoming and outgoing from device)
+                const isFromMe = msg.key.fromMe;
+                const messageContent = msg.message;
+                const textContent =
+                    messageContent?.conversation ||
+                    messageContent?.extendedTextMessage?.text ||
+                    messageContent?.imageMessage?.caption ||
+                    messageContent?.videoMessage?.caption ||
+                    '[Media/Other]';
+
+                this.addToLog(sessionId, isFromMe ? 'outgoing' : 'incoming', {
+                    from: msg.key.remoteJid,
+                    type: Object.keys(messageContent || {})[0] || 'unknown',
+                    text: textContent,
+                    messageId: msg.key.id,
+                    pushName: msg.pushName,
+                });
+
+                if (!isFromMe && sessionData.webhookUrl) {
                     await this.sendWebhook(
                         sessionData.webhookUrl,
                         'message_received',
@@ -210,16 +260,38 @@ class WhatsAppService {
         };
     }
 
-    getAllSessions() {
-        const sessionsList = [];
-        for (const [id, data] of this.sessions.entries()) {
-            sessionsList.push({
-                sessionId: id,
-                status: data.status,
-                whatsappId: data.whatsappId,
+    async getAllSessions() {
+        try {
+            const result = await pool.query(
+                'SELECT session_id, status, whatsapp_id FROM sessions ORDER BY created_at DESC',
+            );
+            const sessionsList = result.rows.map((row) => {
+                // Check if session is active in memory for real-time status
+                const inMemorySession = this.sessions.get(row.session_id);
+                return {
+                    sessionId: row.session_id,
+                    status: inMemorySession
+                        ? inMemorySession.status
+                        : row.status,
+                    whatsappId: inMemorySession
+                        ? inMemorySession.whatsappId
+                        : row.whatsapp_id,
+                };
             });
+            return sessionsList;
+        } catch (error) {
+            console.error('Error fetching sessions from DB:', error);
+            // Fallback to in-memory only
+            const sessionsList = [];
+            for (const [id, data] of this.sessions.entries()) {
+                sessionsList.push({
+                    sessionId: id,
+                    status: data.status,
+                    whatsappId: data.whatsappId,
+                });
+            }
+            return sessionsList;
         }
-        return sessionsList;
     }
 
     async stopSession(sessionId) {
@@ -309,6 +381,7 @@ class WhatsAppService {
         if (!session) throw new Error('Session not found');
 
         const result = await session.sock.sendMessage(to, { text });
+
         return result;
     }
 
@@ -320,8 +393,23 @@ class WhatsAppService {
             [type]: { url: mediaUrl },
             caption,
         });
+
         return result;
     }
+
+    async sendTemplateMessage(sessionId, to, templateName, variables) {
+        const session = this.sessions.get(sessionId);
+        if (!session) throw new Error('Session not found');
+
+        const template = await templateService.getTemplateByName(templateName);
+        if (!template) throw new Error(`Template '${templateName}' not found`);
+
+        const text = templateService.renderTemplate(template, variables);
+        const result = await session.sock.sendMessage(to, { text });
+
+        return result;
+    }
+
     async restoreSessions() {
         const client = await pool.connect();
         try {
