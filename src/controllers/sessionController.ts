@@ -22,10 +22,10 @@ export const startSession = async (req: Request, res: Response) => {
     }
 };
 
-export const getSessionStatus = (req: Request, res: Response) => {
+export const getSessionStatus = async (req: Request, res: Response) => {
     try {
         const { sessionId } = req.params;
-        const result = whatsAppService.getSessionStatus(sessionId);
+        const result = await whatsAppService.getSessionStatus(sessionId);
         if (!result) {
             return res
                 .status(404)
@@ -100,6 +100,14 @@ export const sendText = async (req: Request, res: Response) => {
             });
         }
 
+        const sessionStatus = await whatsAppService.getSessionStatus(sessionId);
+        if (!sessionStatus || sessionStatus.status !== 'CONNECTED') {
+            return res.status(404).json({
+                status: 'error',
+                message: 'Session not active',
+            });
+        }
+
         const job = await messageQueue.add('text', {
             sessionId,
             to,
@@ -120,6 +128,14 @@ export const sendMedia = async (req: Request, res: Response) => {
             return res.status(400).json({
                 status: 'error',
                 message: 'Missing parameters: to, type, mediaUrl',
+            });
+        }
+
+        const sessionStatus = await whatsAppService.getSessionStatus(sessionId);
+        if (!sessionStatus || sessionStatus.status !== 'CONNECTED') {
+            return res.status(404).json({
+                status: 'error',
+                message: 'Session not active',
             });
         }
 
@@ -148,6 +164,14 @@ export const sendTemplate = async (req: Request, res: Response) => {
             });
         }
 
+        const sessionStatus = await whatsAppService.getSessionStatus(sessionId);
+        if (!sessionStatus || sessionStatus.status !== 'CONNECTED') {
+            return res.status(404).json({
+                status: 'error',
+                message: 'Session not active',
+            });
+        }
+
         const job = await messageQueue.add('template', {
             sessionId,
             to,
@@ -173,6 +197,20 @@ export const sendFile = async (req: Request, res: Response) => {
             return res.status(400).json({
                 status: 'error',
                 message: 'Missing parameters: to, files',
+            });
+        }
+
+        const sessionStatus = await whatsAppService.getSessionStatus(sessionId);
+        if (!sessionStatus || sessionStatus.status !== 'CONNECTED') {
+            // Cleanup uploaded files since we are rejecting
+            if (req.files) {
+                (req.files as Express.Multer.File[]).forEach((file) => {
+                    fs.unlink(file.path, () => {});
+                });
+            }
+            return res.status(404).json({
+                status: 'error',
+                message: 'Session not active',
             });
         }
 

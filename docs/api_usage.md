@@ -23,7 +23,7 @@ Initiates a new WhatsApp session. Returns a session ID. You should listen to web
 - **Request Body:**
     ```json
     {
-        "sessionId": "unique_session_id",
+        "sessionId": "test-session-1",
         "webhookUrl": "https://your-server.com/webhook"
     }
     ```
@@ -32,7 +32,7 @@ Initiates a new WhatsApp session. Returns a session ID. You should listen to web
     {
         "status": "pending",
         "message": "Session creation initiated.",
-        "sessionId": "unique_session_id"
+        "sessionId": "test-session-1"
     }
     ```
 - **cURL Example:**
@@ -69,7 +69,7 @@ Check the current status of a specific session.
 - **Response:**
     ```json
     {
-        "sessionId": "unique_session_id",
+        "sessionId": "test-session-1",
         "status": "CONNECTED",
         "whatsappId": "1234567890@s.whatsapp.net"
     }
@@ -88,8 +88,8 @@ Retrieve a list of all active sessions managed by the gateway.
     ```json
     {
         "sessions": [
-            { "sessionId": "session1", "status": "CONNECTED" },
-            { "sessionId": "session2", "status": "SCANNING_QR" }
+            { "sessionId": "test-session-1", "status": "CONNECTED" },
+            { "sessionId": "test-session-2", "status": "SCANNING_QR" }
         ]
     }
     ```
@@ -326,7 +326,7 @@ Your application should expose a webhook endpoint (e.g., `POST /webhook`) to rec
 ```json
 {
     "event": "qr_code",
-    "sessionId": "session1",
+    "sessionId": "test-session-1",
     "qrCode": "data:image/png;base64,..."
 }
 ```
@@ -336,7 +336,7 @@ Your application should expose a webhook endpoint (e.g., `POST /webhook`) to rec
 ```json
 {
     "event": "message_received",
-    "sessionId": "session1",
+    "sessionId": "test-session-1",
     "messageId": "msg_123",
     "from": "sender_jid",
     "type": "text",

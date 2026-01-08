@@ -5,7 +5,7 @@ import makeWASocket, {
     ConnectionState,
     BaileysEventMap,
     proto,
-    AnyMessageContent
+    AnyMessageContent,
 } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
 import pino from 'pino';
@@ -53,7 +53,11 @@ class WhatsAppService {
         this.maxLogSize = 100; // Keep last 100 messages
     }
 
-    addToLog(sessionId: string, direction: 'incoming' | 'outgoing', message: any) {
+    addToLog(
+        sessionId: string,
+        direction: 'incoming' | 'outgoing',
+        message: any,
+    ) {
         this.messageLog.unshift({
             id: Date.now().toString(),
             sessionId,
@@ -74,7 +78,11 @@ class WhatsAppService {
         return this.messageLog;
     }
 
-    async sendWebhook(url: string | undefined | null, event: string, data: any) {
+    async sendWebhook(
+        url: string | undefined | null,
+        event: string,
+        data: any,
+    ) {
         if (!url) return;
         try {
             await fetch(url, {
@@ -87,7 +95,10 @@ class WhatsAppService {
         }
     }
 
-    async startSession(sessionId: string, webhookUrl?: string | null): Promise<StartSessionResponse> {
+    async startSession(
+        sessionId: string,
+        webhookUrl?: string | null,
+    ): Promise<StartSessionResponse> {
         // DB Persistence & Ownership Check
         const client = await pool.connect();
         try {
@@ -155,82 +166,89 @@ class WhatsAppService {
 
         sock.ev.on('creds.update', saveCreds);
 
-        sock.ev.on('connection.update', async (update: Partial<ConnectionState>) => {
-            const { connection, lastDisconnect, qr } = update;
-            const sessionData = this.sessions.get(sessionId);
+        sock.ev.on(
+            'connection.update',
+            async (update: Partial<ConnectionState>) => {
+                const { connection, lastDisconnect, qr } = update;
+                const sessionData = this.sessions.get(sessionId);
 
-            // if (!sessionData) return; // Don't return, we might need to handle cleanup/reconnect even if map is stale? No, keep it safe.
-            if (!sessionData && connection !== 'close') return; // Only process 'close' if session missing? No, mostly rely on map.
+                // if (!sessionData) return; // Don't return, we might need to handle cleanup/reconnect even if map is stale? No, keep it safe.
+                if (!sessionData) return;
 
-            if (qr) {
-                if (sessionData) {
-                    sessionData.status = 'SCANNING_QR';
-                    sessionData.qr = qr;
-                    await pool.query(
-                        'UPDATE sessions SET status = $1 WHERE session_id = $2',
-                        ['SCANNING_QR', sessionId],
-                    );
+                if (qr) {
+                    if (sessionData) {
+                        sessionData.status = 'SCANNING_QR';
+                        sessionData.qr = qr;
+                        await pool.query(
+                            'UPDATE sessions SET status = $1 WHERE session_id = $2',
+                            ['SCANNING_QR', sessionId],
+                        );
+                    }
+                    console.log(`[${sessionId}] QR Code generated`);
+                    qrcode.generate(qr, { small: true }); // Print to console
+                    await this.sendWebhook(webhookUrl, 'qr_code', {
+                        sessionId,
+                        qrCode: qr,
+                    });
                 }
-                console.log(`[${sessionId}] QR Code generated`);
-                qrcode.generate(qr, { small: true }); // Print to console
-                await this.sendWebhook(webhookUrl, 'qr_code', {
-                    sessionId,
-                    qrCode: qr,
-                });
-            }
 
-            if (connection === 'close') {
-                const error = lastDisconnect?.error as Boom | undefined;
-                const errorMessage = error?.message || 'Unknown Error';
-                const statusCode = error?.output?.statusCode;
+                if (connection === 'close') {
+                    const error = lastDisconnect?.error as Boom | undefined;
+                    const errorMessage = error?.message || 'Unknown Error';
+                    const statusCode = error?.output?.statusCode;
 
-                const shouldReconnect =
-                    statusCode !== DisconnectReason.loggedOut;
+                    const shouldReconnect =
+                        statusCode !== DisconnectReason.loggedOut;
 
-                console.error(`[${sessionId}] Connection closed details:`, {
-                    message: errorMessage,
-                    statusCode: statusCode,
-                    shouldReconnect,
-                });
+                    console.error(`[${sessionId}] Connection closed details:`, {
+                        message: errorMessage,
+                        statusCode: statusCode,
+                        shouldReconnect,
+                    });
 
-                // CLEANUP: Remove session from map to allow 'startSession' to run again
-                this.sessions.delete(sessionId);
+                    // CLEANUP: Remove session from map to allow 'startSession' to run again
+                    this.sessions.delete(sessionId);
 
-                if (shouldReconnect) {
-                    // Small delay to prevent tight loops
-                    setTimeout(
-                        () => this.startSession(sessionId, webhookUrl),
-                        2000,
-                    );
-                } else {
+                    if (shouldReconnect) {
+                        // Small delay to prevent tight loops
+                        setTimeout(
+                            () => this.startSession(sessionId, webhookUrl),
+                            2000,
+                        );
+                    } else {
+                        await pool.query(
+                            'UPDATE sessions SET status = $1 WHERE session_id = $2',
+                            ['DISCONNECTED', sessionId],
+                        );
+                        await this.sendWebhook(
+                            webhookUrl,
+                            'connection_update',
+                            {
+                                sessionId,
+                                status: 'DISCONNECTED',
+                            },
+                        );
+                    }
+                } else if (connection === 'open') {
+                    console.log(`[${sessionId}] Connected`);
+                    const waId = sock.user?.id;
+                    if (sessionData) {
+                        sessionData.status = 'CONNECTED';
+                        sessionData.qr = null; // Clear QR on success
+                        sessionData.whatsappId = waId;
+                    }
                     await pool.query(
-                        'UPDATE sessions SET status = $1 WHERE session_id = $2',
-                        ['DISCONNECTED', sessionId],
+                        'UPDATE sessions SET status = $1, whatsapp_id = $2 WHERE session_id = $3',
+                        ['CONNECTED', waId, sessionId],
                     );
                     await this.sendWebhook(webhookUrl, 'connection_update', {
                         sessionId,
-                        status: 'DISCONNECTED',
+                        status: 'CONNECTED',
+                        whatsappId: waId,
                     });
                 }
-            } else if (connection === 'open') {
-                console.log(`[${sessionId}] Connected`);
-                const waId = sock.user?.id;
-                if (sessionData) {
-                    sessionData.status = 'CONNECTED';
-                    sessionData.qr = null; // Clear QR on success
-                    sessionData.whatsappId = waId;
-                }
-                await pool.query(
-                    'UPDATE sessions SET status = $1, whatsapp_id = $2 WHERE session_id = $3',
-                    ['CONNECTED', waId, sessionId],
-                );
-                await this.sendWebhook(webhookUrl, 'connection_update', {
-                    sessionId,
-                    status: 'CONNECTED',
-                    whatsappId: waId,
-                });
-            }
-        });
+            },
+        );
 
         sock.ev.on('messages.upsert', async ({ messages }) => {
             const sessionData = this.sessions.get(sessionId);
@@ -275,14 +293,34 @@ class WhatsAppService {
         };
     }
 
-    getSessionStatus(sessionId: string) {
+    async getSessionStatus(sessionId: string) {
         const session = this.sessions.get(sessionId);
-        if (!session) return null;
-        return {
-            sessionId,
-            status: session.status,
-            whatsappId: session.whatsappId,
-        };
+        if (session) {
+            return {
+                sessionId,
+                status: session.status,
+                whatsappId: session.whatsappId,
+            };
+        }
+
+        // Check DB if not in memory
+        try {
+            const result = await pool.query(
+                'SELECT status, whatsapp_id FROM sessions WHERE session_id = $1',
+                [sessionId],
+            );
+            if (result.rows.length > 0) {
+                return {
+                    sessionId,
+                    status: result.rows[0].status,
+                    whatsappId: result.rows[0].whatsapp_id,
+                };
+            }
+        } catch (error) {
+            console.error('Error fetching session status from DB:', error);
+        }
+
+        return null;
     }
 
     getQRCode(sessionId: string) {
@@ -345,12 +383,13 @@ class WhatsAppService {
 
         try {
             // SOFT STOP: Do NOT logout, just close socket to stop validation/traffic
-            session.sock.end(undefined);
             this.sessions.delete(sessionId);
+            session.sock.end(undefined);
             await pool.query(
                 'UPDATE sessions SET status = $1 WHERE session_id = $2',
                 ['STOPPED', sessionId],
             );
+            console.log(`[${sessionId}] Session stopped`);
             return { status: 'success', message: 'Session stopped' };
         } catch (error: any) {
             this.sessions.delete(sessionId);
@@ -368,9 +407,9 @@ class WhatsAppService {
 
         try {
             if (session) {
+                this.sessions.delete(sessionId);
                 await session.sock.logout(); // Actual Logout from WA
                 session.sock.end(undefined);
-                this.sessions.delete(sessionId);
             } else {
                 // Try to load state just to logout?
                 // It's tricky if we don't have the sock.
@@ -420,7 +459,13 @@ class WhatsAppService {
         return result;
     }
 
-    async sendMediaMessage(sessionId: string, to: string, type: 'image' | 'video' | 'document', mediaUrl: string, caption?: string) {
+    async sendMediaMessage(
+        sessionId: string,
+        to: string,
+        type: 'image' | 'video' | 'document',
+        mediaUrl: string,
+        caption?: string,
+    ) {
         const session = this.sessions.get(sessionId);
         if (!session) throw new Error('Session not found');
 
@@ -428,8 +473,8 @@ class WhatsAppService {
         // The type argument is 'image' | 'video' | 'document' which matches keys in AnyMessageContent
         // but TypeScript needs to know that.
         const messageContent = {
-             [type]: { url: mediaUrl },
-             caption
+            [type]: { url: mediaUrl },
+            caption,
         } as unknown as AnyMessageContent;
 
         const result = await session.sock.sendMessage(to, messageContent);
@@ -437,7 +482,12 @@ class WhatsAppService {
         return result;
     }
 
-    async sendFileMessage(sessionId: string, to: string, fileObj: Express.Multer.File, caption?: string) {
+    async sendFileMessage(
+        sessionId: string,
+        to: string,
+        fileObj: Express.Multer.File,
+        caption?: string,
+    ) {
         const session = this.sessions.get(sessionId);
         if (!session) throw new Error('Session not found');
 
@@ -468,7 +518,12 @@ class WhatsAppService {
         return result;
     }
 
-    async sendTemplateMessage(sessionId: string, to: string, templateName: string, variables?: Record<string, string>) {
+    async sendTemplateMessage(
+        sessionId: string,
+        to: string,
+        templateName: string,
+        variables?: Record<string, string>,
+    ) {
         const session = this.sessions.get(sessionId);
         if (!session) throw new Error('Session not found');
 
