@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import whatsAppService from '../services/whatsappService.js';
+import { messageQueue } from '../queues/messageQueue.js';
 import QRCode from 'qrcode';
 import fs from 'fs';
 
@@ -98,12 +99,14 @@ export const sendText = async (req: Request, res: Response) => {
                 message: 'Missing parameters: to, message',
             });
         }
-        const result = await whatsAppService.sendTextMessage(
+
+        const job = await messageQueue.add('text', {
             sessionId,
             to,
             message,
-        );
-        res.json({ status: 'success', result });
+        });
+
+        res.json({ status: 'queued', jobId: job.id });
     } catch (error: any) {
         res.status(500).json({ status: 'error', message: error.message });
     }
@@ -119,14 +122,16 @@ export const sendMedia = async (req: Request, res: Response) => {
                 message: 'Missing parameters: to, type, mediaUrl',
             });
         }
-        const result = await whatsAppService.sendMediaMessage(
+
+        const job = await messageQueue.add('media', {
             sessionId,
             to,
             type,
             mediaUrl,
             caption,
-        );
-        res.json({ status: 'success', result });
+        });
+
+        res.json({ status: 'queued', jobId: job.id });
     } catch (error: any) {
         res.status(500).json({ status: 'error', message: error.message });
     }
@@ -142,13 +147,15 @@ export const sendTemplate = async (req: Request, res: Response) => {
                 message: 'Missing parameters: to, templateName',
             });
         }
-        const result = await whatsAppService.sendTemplateMessage(
+
+        const job = await messageQueue.add('template', {
             sessionId,
             to,
             templateName,
-            variables || {},
-        );
-        res.json({ status: 'success', result });
+            variables: variables || {},
+        });
+
+        res.json({ status: 'queued', jobId: job.id });
     } catch (error: any) {
         res.status(500).json({ status: 'error', message: error.message });
     }
@@ -177,44 +184,30 @@ export const sendFile = async (req: Request, res: Response) => {
             captionsArray = [captions as string];
         }
 
-        const results = [];
+        const jobs = [];
         for (let i = 0; i < files.length; i++) {
             const file = files[i];
             const fileCaption = captionsArray[i] || ''; // Map caption to file by index
 
-            try {
-                const result = await whatsAppService.sendFileMessage(
-                    sessionId,
-                    to,
-                    file,
-                    fileCaption,
-                );
-                results.push({
-                    file: file.originalname,
-                    status: 'success',
-                    id: result?.key?.id,
-                });
-            } catch (error: any) {
-                console.error(
-                    `Failed to send file ${file.originalname}:`,
-                    error,
-                );
-                results.push({
-                    file: file.originalname,
-                    status: 'error',
-                    error: error.message,
-                });
-            } finally {
-                // Cleanup uploaded file immediately after processing
-                fs.unlink(file.path, (err) => {
-                    if (err) console.error('Failed to cleanup file:', err);
-                });
-            }
+            const job = await messageQueue.add('file', {
+                sessionId,
+                to,
+                path: file.path,
+                mimetype: file.mimetype,
+                originalname: file.originalname,
+                caption: fileCaption,
+            });
+            jobs.push({
+                file: file.originalname,
+                status: 'queued',
+                jobId: job.id,
+            });
+            // Note: We do NOT delete the file here. The worker handles cleanup after processing.
         }
 
-        res.json({ status: 'success', results });
+        res.json({ status: 'success', jobs });
     } catch (error: any) {
-        // Cleanup remaining files on catastrophic error
+        // Only cleanup on API error (e.g. valid failure before queueing)
         if (req.files) {
             (req.files as Express.Multer.File[]).forEach((file) => {
                 fs.unlink(file.path, () => {});

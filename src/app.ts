@@ -11,6 +11,7 @@ import sessionRoutes from './routes/sessionRoutes.js';
 import templateRoutes from './routes/templateRoutes.js';
 import apiKeyAuth from './middlewares/authMiddleware.js';
 import whatsAppService from './services/whatsappService.js';
+import './workers/messageWorker.js'; // Initialize worker
 
 dotenv.config();
 
@@ -83,7 +84,10 @@ if (import.meta.url === `file://${process.argv[1]}`) {
             await pool.query(schema);
             logger.info('Database schema initialized');
         } catch (error) {
-            logger.error({ err: error }, 'Failed to initialize database schema');
+            logger.error(
+                { err: error },
+                'Failed to initialize database schema',
+            );
         }
     };
 
