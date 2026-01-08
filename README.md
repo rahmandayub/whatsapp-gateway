@@ -8,6 +8,7 @@ A scalable WhatsApp Gateway API built with Node.js, Express, and Baileys. Ideall
 - **RESTful API**: Simple endpoints to send messages, manage sessions, and more.
 - **Webhooks**: Real-time notifications for incoming messages and delivery status.
 - **Media Support**: Send images, videos, documents, and audio.
+- **Message Queuing**: High-performance asynchronous message processing with Redis & BullMQ.
 - **Swagger/OpenAPI Documentation**: (Coming soon)
 
 ## 🛠 Prerequisites
@@ -81,16 +82,24 @@ npm run dev
 
 ### Production Mode
 
-```bash
-npm start
-```
+1.  Build the project:
+
+    ```bash
+    npm run build
+    ```
+
+2.  Start the server:
+
+    ```bash
+    npm start
+    ```
 
 ### Proof of Concept (POC)
 
 To test the core Baileys connectivity independently of the API:
 
 ```bash
-node src/poc/baileys.js
+npx tsx src/poc/baileys.ts
 ```
 
 This will display a QR code in the terminal (if `printQRInTerminal` is enabled) or log connection events.
