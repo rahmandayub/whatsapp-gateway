@@ -1,7 +1,8 @@
+import { Request, Response, NextFunction } from 'express';
 import dotenv from 'dotenv';
 dotenv.config();
 
-const apiKeyAuth = (req, res, next) => {
+const apiKeyAuth = (req: Request, res: Response, next: NextFunction) => {
     const apiKey = req.headers['x-api-key'];
     const validApiKey = process.env.API_KEY;
 

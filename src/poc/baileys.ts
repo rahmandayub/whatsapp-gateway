@@ -1,35 +1,38 @@
 import makeWASocket, {
     useMultiFileAuthState,
     DisconnectReason,
+    ConnectionState,
 } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
 import pino from 'pino';
 
-async function connectToWhatsApp() {
+import qrcode from 'qrcode-terminal';
+
+async function connectToWhatsApp(): Promise<void> {
     const { state, saveCreds } =
         await useMultiFileAuthState('auth_info_baileys');
 
     const sock = makeWASocket({
-        logger: pino({ level: 'silent' }),
-        printQRInTerminal: true,
+        logger: pino({ level: 'silent' }) as any,
+        printQRInTerminal: false,
         auth: state,
     });
 
-    sock.ev.on('connection.update', (update) => {
+    sock.ev.on('connection.update', (update: Partial<ConnectionState>) => {
         const { connection, lastDisconnect, qr } = update;
 
         if (qr) {
             console.log('QR Code received, please scan:');
+            qrcode.generate(qr, { small: true });
         }
 
         if (connection === 'close') {
             const shouldReconnect =
-                lastDisconnect.error instanceof Boom &&
-                lastDisconnect.error.output?.statusCode !==
-                    DisconnectReason.loggedOut;
+                (lastDisconnect?.error as Boom)?.output?.statusCode !==
+                DisconnectReason.loggedOut;
             console.log(
                 'Connection closed due to ',
-                lastDisconnect.error,
+                lastDisconnect?.error,
                 ', reconnecting ',
                 shouldReconnect,
             );
