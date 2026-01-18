@@ -1,7 +1,8 @@
-node_modules
-.env
 .DS_Store
-coverage
-dist
+.env
 .vscode
 auth_info_baileys/
+coverage
+dist
+node_modules
+temp_uploads/

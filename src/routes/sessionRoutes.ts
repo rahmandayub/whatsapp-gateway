@@ -1,10 +1,9 @@
 import express from 'express';
-import multer from 'multer';
 import * as sessionController from '../controllers/sessionController.js';
 import { validate, schemas } from '../middlewares/validationMiddleware.js';
+import { upload } from '../config/upload.js';
 
 const router = express.Router();
-const upload = multer({ dest: 'uploads/' });
 
 router.post(
     '/start',

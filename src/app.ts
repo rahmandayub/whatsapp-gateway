@@ -12,8 +12,16 @@ import templateRoutes from './routes/templateRoutes.js';
 import apiKeyAuth from './middlewares/authMiddleware.js';
 import whatsAppService from './services/whatsappService.js';
 import './workers/messageWorker.js'; // Initialize worker
+import { CONFIG } from './config/paths.js';
+import { gracefulShutdown } from './shutdown.js';
 
 dotenv.config();
+
+// Task 1.2.4: Validate auth directory is not under public/
+if (!CONFIG.isPathSecure(CONFIG.AUTH_DIR)) {
+    console.error('FATAL: AUTH_DIR is configured inside the public directory. This is a security risk.');
+    process.exit(1);
+}
 
 const app = express();
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
@@ -95,9 +103,13 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         whatsAppService.restoreSessions();
     });
 
-    app.listen(PORT, () => {
+    const server = app.listen(PORT, () => {
         logger.info(`Server running on port ${PORT}`);
     });
+
+    // Graceful Shutdown
+    process.on('SIGTERM', () => gracefulShutdown(server));
+    process.on('SIGINT', () => gracefulShutdown(server));
 }
 
 export { app, logger };

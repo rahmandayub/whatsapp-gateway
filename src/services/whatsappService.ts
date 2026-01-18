@@ -14,6 +14,7 @@ import path from 'path';
 import qrcode from 'qrcode-terminal';
 import pool from '../config/database.js';
 import templateService from './templateService.js';
+import { CONFIG } from '../config/paths.js';
 
 interface SessionData {
     sock: WASocket;
@@ -144,7 +145,7 @@ class WhatsAppService {
             client.release();
         }
 
-        const authPath = `auth_info_baileys/${sessionId}`;
+        const authPath = path.join(CONFIG.AUTH_DIR, sessionId);
         if (!fs.existsSync(authPath)) {
             fs.mkdirSync(authPath, { recursive: true });
         }
@@ -403,7 +404,7 @@ class WhatsAppService {
 
     async logoutSession(sessionId: string) {
         const session = this.sessions.get(sessionId);
-        const authPath = `auth_info_baileys/${sessionId}`;
+        const authPath = path.join(CONFIG.AUTH_DIR, sessionId);
 
         try {
             if (session) {

@@ -3,6 +3,7 @@ import whatsAppService from '../services/whatsappService.js';
 import { messageQueue } from '../queues/messageQueue.js';
 import QRCode from 'qrcode';
 import fs from 'fs';
+import { validateFileSignature } from '../utils/fileValidation.js';
 
 export const startSession = async (req: Request, res: Response) => {
     try {
@@ -226,6 +227,20 @@ export const sendFile = async (req: Request, res: Response) => {
         for (let i = 0; i < files.length; i++) {
             const file = files[i];
             const fileCaption = captionsArray[i] || ''; // Map caption to file by index
+
+            // Task 1.3.3: MIME type validation (check magic bytes)
+            const isValidSignature = await validateFileSignature(file.path, file.mimetype);
+            if (!isValidSignature) {
+                // Delete invalid file immediately
+                fs.unlink(file.path, () => {});
+
+                // Return 400 immediately for security? Or continue others?
+                // Let's fail fast for safety.
+                return res.status(400).json({
+                    status: 'error',
+                    message: `Security validation failed for file: ${file.originalname}. Content does not match extension/type.`
+                });
+            }
 
             const job = await messageQueue.add('file', {
                 sessionId,
