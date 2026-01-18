@@ -15,6 +15,7 @@ import qrcode from 'qrcode-terminal';
 import pool from '../config/database.js';
 import templateService from './templateService.js';
 import { CONFIG } from '../config/paths.js';
+import { webhookQueue } from '../queues/webhookQueue.js';
 
 interface SessionData {
     sock: WASocket;
@@ -22,6 +23,8 @@ interface SessionData {
     webhookUrl?: string | null;
     qr?: string | null;
     whatsappId?: string;
+    reconnectAttempts: number;
+    lastReconnectAt?: number;
 }
 
 interface MessageLogEntry {
@@ -85,15 +88,14 @@ class WhatsAppService {
         data: any,
     ) {
         if (!url) return;
-        try {
-            await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ event, ...data, timestamp: Date.now() }),
-            });
-        } catch (error: any) {
-            console.error(`Failed to send webhook to ${url}:`, error.message);
-        }
+
+        // Push to queue instead of sending immediately
+        await webhookQueue.add('webhook', {
+            url,
+            event,
+            data,
+            timestamp: Date.now()
+        });
     }
 
     async startSession(
@@ -163,6 +165,7 @@ class WhatsAppService {
             status: 'CONNECTING',
             webhookUrl,
             qr: null,
+            reconnectAttempts: 0
         });
 
         sock.ev.on('creds.update', saveCreds);
@@ -207,14 +210,73 @@ class WhatsAppService {
                         shouldReconnect,
                     });
 
-                    // CLEANUP: Remove session from map to allow 'startSession' to run again
+                    // CLEANUP: Remove session from map to allow 'startSession' to run again,
+                    // BUT keep track of attempts if we are reconnecting immediately via this logic
+                    // Actually, 'startSession' resets attempts if we don't pass them.
+                    // We should probably modify startSession or handle reconnection loop here.
+
+                    // The issue is: startSession creates a NEW socket.
+                    // We need to persist reconnectAttempts across restarts.
+                    // But startSession resets it currently.
+
+                    // Simple solution: Pass existing attempts to startSession?
+                    // No, startSession is public API.
+
+                    // Better: Store attempts in a separate Map or DB, or rely on startSession's internal logic?
+                    // Let's modify startSession to accept optional 'retryState' but that exposes internal logic.
+
+                    // Actually, if we just call startSession, it checks DB.
+                    // Let's use a private 'reconnectSession' method or just track it globally.
+
+                    // Or, we can just grab the attempts BEFORE deleting.
+                    const currentAttempts = sessionData?.reconnectAttempts || 0;
                     this.sessions.delete(sessionId);
 
                     if (shouldReconnect) {
-                        // Small delay to prevent tight loops
+                        // Exponential Backoff
+                        // Cap at 5 minutes (300000ms)
+                        // Max attempts: 10?
+                        const maxAttempts = 10;
+                        if (currentAttempts >= maxAttempts) {
+                            console.error(`[${sessionId}] Max reconnection attempts (${maxAttempts}) reached. Giving up.`);
+                            await pool.query(
+                                'UPDATE sessions SET status = $1 WHERE session_id = $2',
+                                ['STOPPED_ERROR', sessionId],
+                            );
+                             await this.sendWebhook(
+                                webhookUrl,
+                                'connection_update',
+                                {
+                                    sessionId,
+                                    status: 'STOPPED_ERROR',
+                                    reason: 'Max reconnection attempts reached'
+                                },
+                            );
+                            return;
+                        }
+
+                        // Delay: 2^attempts * 1000ms
+                        const delay = Math.min(Math.pow(2, currentAttempts) * 1000, 300000);
+
+                        console.log(`[${sessionId}] Reconnecting in ${delay}ms (Attempt ${currentAttempts + 1}/${maxAttempts})`);
+
                         setTimeout(
-                            () => this.startSession(sessionId, webhookUrl),
-                            2000,
+                            async () => {
+                                // We need to tell startSession this is a retry.
+                                // But startSession initializes attempts to 0.
+                                // We can add a specialized method or optional param.
+                                // Since we can't easily change signature of public startSession without affecting API (though TS allows optional params),
+                                // Let's add an internal method or just hack it by setting it after start.
+
+                                // Actually, startSession returns a promise.
+                                const res = await this.startSession(sessionId, webhookUrl);
+                                // If successful (or pending), restore the counter
+                                const newSession = this.sessions.get(sessionId);
+                                if (newSession) {
+                                    newSession.reconnectAttempts = currentAttempts + 1;
+                                }
+                            },
+                            delay,
                         );
                     } else {
                         await pool.query(
@@ -237,6 +299,7 @@ class WhatsAppService {
                         sessionData.status = 'CONNECTED';
                         sessionData.qr = null; // Clear QR on success
                         sessionData.whatsappId = waId;
+                        sessionData.reconnectAttempts = 0; // Reset attempts on success
                     }
                     await pool.query(
                         'UPDATE sessions SET status = $1, whatsapp_id = $2 WHERE session_id = $3',

@@ -4,6 +4,7 @@ import express from 'express';
 import sessionRoutes from '../../routes/sessionRoutes.js';
 import whatsAppService from '../../services/whatsappService.js';
 import { messageQueue } from '../../queues/messageQueue.js';
+import { errorHandler } from '../../middlewares/errorHandler.js';
 import path from 'path';
 import fs from 'fs';
 
@@ -25,6 +26,7 @@ describe('Integration: File Upload', () => {
         // Mock auth middleware for test simplicity
         app.use((req, res, next) => { next(); });
         app.use('/sessions', sessionRoutes);
+        app.use(errorHandler);
 
         if (!fs.existsSync(testDir)) fs.mkdirSync(testDir);
 

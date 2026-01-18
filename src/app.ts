@@ -2,7 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
-import pino from 'pino';
 import rateLimit from 'express-rate-limit';
 import fs from 'fs';
 import path from 'path';
@@ -11,9 +10,13 @@ import sessionRoutes from './routes/sessionRoutes.js';
 import templateRoutes from './routes/templateRoutes.js';
 import apiKeyAuth from './middlewares/authMiddleware.js';
 import whatsAppService from './services/whatsappService.js';
-import './workers/messageWorker.js'; // Initialize worker
+import './workers/messageWorker.js'; // Initialize message worker
+import './workers/webhookWorker.js'; // Initialize webhook worker
 import { CONFIG } from './config/paths.js';
 import { gracefulShutdown } from './shutdown.js';
+import { requestId } from './middlewares/requestId.js';
+import { errorHandler } from './middlewares/errorHandler.js';
+import { logger } from './utils/logger.js';
 
 dotenv.config();
 
@@ -24,7 +27,6 @@ if (!CONFIG.isPathSecure(CONFIG.AUTH_DIR)) {
 }
 
 const app = express();
-const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
@@ -57,6 +59,7 @@ app.use(
 );
 app.use(cors());
 app.use(express.json());
+app.use(requestId); // Add Request ID middleware
 app.use(limiter);
 
 // Serve static files for Admin Panel
@@ -74,6 +77,9 @@ app.use('/api/v1/templates', templateRoutes);
 app.get('/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
+
+// Global Error Handler
+app.use(errorHandler);
 
 // Only listen if executed directly, not when imported
 // @ts-ignore

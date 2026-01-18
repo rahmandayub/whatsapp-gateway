@@ -2,7 +2,8 @@ import { Server } from 'http';
 import pool from './config/database.js';
 import whatsAppService from './services/whatsappService.js';
 import { messageQueue } from './queues/messageQueue.js';
-import { logger } from './app.js';
+import { webhookQueue } from './queues/webhookQueue.js';
+import { logger } from './utils/logger.js';
 
 export const gracefulShutdown = async (server: Server) => {
     logger.info('Received kill signal, shutting down gracefully');
@@ -28,8 +29,9 @@ export const gracefulShutdown = async (server: Server) => {
         }
 
         // 3. Pause/Close BullMQ
-        logger.info('Closing message queue...');
+        logger.info('Closing queues...');
         await messageQueue.close();
+        await webhookQueue.close();
 
         // 4. Close Database Pool
         logger.info('Closing database connection...');
