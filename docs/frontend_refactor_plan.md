@@ -1,232 +1,174 @@
-# Frontend Architecture Improvement Plan
+# Frontend Development Plan
 
-> **Purpose**: Transform the WhatsApp Gateway admin UI from a monolithic single-file structure to a modern, modular Vite-based architecture.
-
----
-
-## Decisions Made
-
-| Question             | Decision                         |
-| -------------------- | -------------------------------- |
-| **Build System**     | ✅ Vite with Alpine.js           |
-| **Dark Mode**        | ⏸️ Deferred (not priority)       |
-| **Phase 6 Features** | All features with placeholder UI |
-| **Design System**    | shadcn/ui-inspired patterns      |
+> **Stack**: Vite + React 19 + Tailwind CSS 4 + shadcn/ui (new-york)
+> **Status**: Initial setup complete ✅
 
 ---
 
-## Proposed Architecture
+## Current Setup
+
+| Component            | Status                |
+| -------------------- | --------------------- |
+| Vite + React         | ✅ Configured         |
+| Tailwind CSS 4       | ✅ With CSS variables |
+| shadcn/ui            | ✅ new-york style     |
+| Path aliases (`@/*`) | ✅ Configured         |
+| TypeScript           | ✅ Strict mode        |
+| ESLint               | ✅ Configured         |
+
+---
+
+## Project Structure (To Build)
 
 ```
-src/public/           (old - to be replaced)
-├── index.html
-├── css/style.css
-└── js/app.js
-
-frontend/             (new - Vite project)
-├── package.json
-├── vite.config.js
-├── index.html
-├── src/
-│   ├── main.js           # Alpine.js initialization
-│   ├── styles/
-│   │   ├── main.css      # Tailwind + custom styles
-│   │   └── components.css
-│   ├── api/
-│   │   └── client.js     # API wrapper with error handling
-│   ├── stores/
-│   │   ├── sessions.js   # Session state management
-│   │   ├── templates.js  # Template state
-│   │   └── messages.js   # Message log state
-│   ├── components/
-│   │   ├── Toast.js      # Notification system
-│   │   ├── SessionCard.js
-│   │   ├── MessageLog.js
-│   │   └── Modal.js      # Reusable modal
-│   └── pages/
-│       ├── Dashboard.js      # Main view (current)
-│       ├── Sessions.js       # Session management
-│       ├── Messages.js       # Message center
-│       ├── Templates.js      # Template manager
-│       ├── Scheduling.js     # [Placeholder] Scheduled messages
-│       ├── Groups.js         # [Placeholder] Group management
-│       └── Contacts.js       # [Placeholder] Contact management
-└── dist/                 # Built output → served by Express
+frontend/src/
+├── main.tsx                    # ✅ Entry point
+├── App.tsx                     # ✅ Root component
+├── index.css                   # ✅ Tailwind + shadcn styles
+├── lib/
+│   └── utils.ts                # ✅ shadcn utilities
+├── components/
+│   └── ui/                     # shadcn components (add as needed)
+├── api/
+│   └── client.ts               # API client with auth
+├── stores/                     # State management (zustand or context)
+│   ├── auth.ts
+│   ├── sessions.ts
+│   └── messages.ts
+├── hooks/
+│   └── use-toast.ts            # Toast notifications
+├── pages/
+│   ├── Login.tsx               # API key auth
+│   ├── Dashboard.tsx           # Overview
+│   ├── Sessions.tsx            # Session management
+│   ├── Messages.tsx            # Message center
+│   ├── Templates.tsx           # Template manager
+│   ├── Scheduling.tsx          # [Placeholder]
+│   ├── Groups.tsx              # [Placeholder]
+│   └── Contacts.tsx            # [Placeholder]
+└── layouts/
+    └── MainLayout.tsx          # Sidebar + header
 ```
 
 ---
 
 ## Implementation Phases
 
-### Phase A: Foundation (3-4 days)
+### Phase A: Core Infrastructure (2-3 days)
 
-#### A.1: Initialize Vite Project
-
-| Task                                               | Description                                             |
-| -------------------------------------------------- | ------------------------------------------------------- |
-| Create `frontend/` directory with Vite + Alpine.js | `npm create vite@latest frontend -- --template vanilla` |
-| Install dependencies                               | `tailwindcss`, `alpinejs`, `@alpinejs/persist`          |
-| Configure Tailwind CSS                             | With custom colors matching current design              |
-| Setup build output to Express static               | Configure `vite.config.js` to output to `dist/`         |
-
----
-
-#### A.2: Core Components
-
-| Component           | Purpose                                                     |
-| ------------------- | ----------------------------------------------------------- |
-| **Toast System**    | Replace all `alert()` with elegant notifications            |
-| **API Client**      | Centralized fetch with auth, error handling, loading states |
-| **Modal Component** | Reusable modal with transitions                             |
-| **Session Card**    | Self-contained session display with actions                 |
+| Task    | Description                                                                              |
+| ------- | ---------------------------------------------------------------------------------------- |
+| **A.1** | Install react-router-dom for routing                                                     |
+| **A.2** | Add shadcn components: `button`, `card`, `input`, `dialog`, `toast`, `sonner`, `sidebar` |
+| **A.3** | Create API client (`@/api/client.ts`) with auth headers                                  |
+| **A.4** | Create auth context/store for API key management                                         |
+| **A.5** | Create `MainLayout` with sidebar navigation                                              |
+| **A.6** | Setup routing with layout wrapper                                                        |
 
 ---
 
-#### A.3: Migrate Existing Features
+### Phase B: Core Pages (3-4 days)
 
-| Feature             | Notes                              |
-| ------------------- | ---------------------------------- |
-| Authentication flow | Keep localStorage API key approach |
-| Session CRUD        | Migrate to modular component       |
-| QR Modal            | Add auto-close on connection       |
-| Template CRUD       | Extract to separate page/component |
-| Message sending     | Add preview before send            |
-| Message log         | Add filtering, pagination          |
-
----
-
-### Phase B: Navigation & UX (2-3 days)
-
-#### B.1: Add Sidebar Navigation
-
-- **Dashboard** - Overview with stats
-- **Sessions** - Session management (current main view)
-- **Messages** - Message center with log and quick send
-- **Templates** - Template management
-- **Scheduling** - [Placeholder]
-- **Groups** - [Placeholder]
-- **Contacts** - [Placeholder]
-
-#### B.2: UX Improvements
-
-| Improvement          | Description                              |
-| -------------------- | ---------------------------------------- |
-| Loading skeletons    | Show loading state for async content     |
-| Confirmation dialogs | Replace browser `confirm()`              |
-| Form validation      | Real-time validation with error messages |
-| Keyboard shortcuts   | Common actions (Ctrl+N for new session)  |
-| Mobile responsive    | Collapsible sidebar, touch-friendly      |
+| Page          | Features                                            |
+| ------------- | --------------------------------------------------- |
+| **Login**     | API key input, validation, localStorage persistence |
+| **Dashboard** | Session stats cards, quick actions, recent messages |
+| **Sessions**  | Session list, create modal, QR modal, status badges |
+| **Messages**  | Message log table, quick send form, filters         |
+| **Templates** | Template CRUD, test send, variable preview          |
 
 ---
 
-### Phase C: Phase 6 Placeholders (1-2 days)
+### Phase C: Phase 6 Placeholders (1 day)
 
-Create placeholder pages with "Coming Soon" states for:
-
-| Page                | Description                                                    |
-| ------------------- | -------------------------------------------------------------- |
-| **Scheduling**      | Calendar view mockup, "Scheduled Messages Feature Coming Soon" |
-| **Groups**          | Group list mockup, "Group Management Coming Soon"              |
-| **Contacts**        | Contact list mockup, "Contact Management Coming Soon"          |
-| **Message Status**  | Status badges in message log (UI only, backend pending)        |
-| **Batch Messaging** | Batch composer UI mockup                                       |
+| Page           | Content                                           |
+| -------------- | ------------------------------------------------- |
+| **Scheduling** | "Scheduled Messages - Coming Soon" with mockup UI |
+| **Groups**     | "Group Management - Coming Soon" with mockup UI   |
+| **Contacts**   | "Contact Management - Coming Soon" with mockup UI |
 
 ---
 
-## File Changes Summary
-
-### New Files
-
-| Path                           | Purpose                   |
-| ------------------------------ | ------------------------- |
-| `frontend/package.json`        | Vite project dependencies |
-| `frontend/vite.config.js`      | Build configuration       |
-| `frontend/tailwind.config.js`  | Tailwind customization    |
-| `frontend/index.html`          | Entry HTML                |
-| `frontend/src/main.js`         | Alpine.js init            |
-| `frontend/src/styles/main.css` | Styles with Tailwind      |
-| `frontend/src/api/client.js`   | API wrapper               |
-| `frontend/src/stores/*.js`     | State management modules  |
-| `frontend/src/components/*.js` | Reusable UI components    |
-| `frontend/src/pages/*.js`      | Page components           |
-
-### Modified Files
-
-| Path           | Changes                                    |
-| -------------- | ------------------------------------------ |
-| `src/app.ts`   | Serve built frontend from `frontend/dist/` |
-| `package.json` | Add frontend build scripts                 |
-
-### Deprecated (Keep for Reference)
-
-| Path          | Notes                                |
-| ------------- | ------------------------------------ |
-| `src/public/` | Will be replaced by `frontend/dist/` |
-
----
-
-## Design System
-
-Following **shadcn/ui-inspired** patterns:
-
-- **Colors**: Slate grays, Orange primary (keep current)
-- **Typography**: Plus Jakarta Sans (keep current)
-- **Components**:
-    - Rounded corners (xl for cards, lg for buttons)
-    - Subtle shadows with color tints
-    - Glassmorphism for overlays
-- **Animations**: Smooth transitions (150-300ms)
-- **Spacing**: 8px grid system
-
----
-
-## Verification Plan
-
-### Development Workflow
+## shadcn Components to Install
 
 ```bash
-# Terminal 1: Backend
-npm run dev
+# Core UI
+npx shadcn@latest add button card input label textarea select
 
-# Terminal 2: Frontend (dev mode with HMR)
-cd frontend && npm run dev
+# Navigation
+npx shadcn@latest add sidebar navigation-menu
 
-# Production build
-cd frontend && npm run build
-# Then backend serves from frontend/dist/
+# Feedback
+npx shadcn@latest add toast sonner alert dialog
+
+# Data display
+npx shadcn@latest add table badge avatar separator
+
+# Forms
+npx shadcn@latest add form (if using react-hook-form)
 ```
-
-### Testing Checklist
-
-- [ ] Session CRUD works as before
-- [ ] QR scanning flow unchanged
-- [ ] Message sending with toast (no alerts)
-- [ ] Templates work as before
-- [ ] All pages accessible via navigation
-- [ ] Placeholder pages show coming soon state
-- [ ] Mobile responsive (375px viewport)
-- [ ] No console errors
 
 ---
 
-## Estimated Timeline
+## API Integration
 
-| Phase                    | Duration     | Priority |
-| ------------------------ | ------------ | -------- |
-| Phase A: Foundation      | 3-4 days     | High     |
-| Phase B: Navigation & UX | 2-3 days     | High     |
-| Phase C: Placeholders    | 1-2 days     | Medium   |
-| **Total**                | **6-9 days** |          |
+The frontend will consume the existing Express API at `/api/v1/`:
+
+| Endpoint                                   | Page                |
+| ------------------------------------------ | ------------------- |
+| `POST /sessions/start`                     | Sessions            |
+| `GET /sessions`                            | Sessions, Dashboard |
+| `GET /sessions/:id/qr`                     | Sessions (QR modal) |
+| `POST /sessions/:id/stop`                  | Sessions            |
+| `POST /sessions/:id/logout`                | Sessions            |
+| `POST /sessions/:id/message/send/text`     | Messages            |
+| `POST /sessions/:id/message/send/file`     | Messages            |
+| `POST /sessions/:id/message/send/template` | Templates           |
+| `GET /sessions/messages/log`               | Messages, Dashboard |
+| `GET /templates`                           | Templates           |
+| `POST /templates`                          | Templates           |
+| `DELETE /templates/:name`                  | Templates           |
+
+---
+
+## Backend Integration
+
+Update `src/app.ts` to serve the built frontend:
+
+```typescript
+// Serve frontend build
+app.use(express.static(path.join(__dirname, '../frontend/dist')));
+
+// SPA fallback
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
+});
+```
 
 ---
 
 ## Next Steps
 
-Ready to proceed with implementation:
+1. Install react-router-dom
+2. Add core shadcn components
+3. Create API client with interceptors
+4. Build Login page
+5. Build MainLayout with sidebar
+6. Migrate session management from old UI
+7. Build message center
+8. Add placeholder pages
 
-1. Initialize Vite project structure
-2. Setup Tailwind CSS with current design tokens
-3. Create Toast notification component
-4. Migrate session management
-5. Add navigation structure
-6. Create placeholder pages for Phase 6 features
+---
+
+## Development Commands
+
+```bash
+# Frontend development (with HMR)
+cd frontend && npm run dev
+
+# Build for production
+cd frontend && npm run build
+
+# Backend serves built frontend
+npm run dev  # (from root)
+```
