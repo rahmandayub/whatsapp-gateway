@@ -1,19 +1,11 @@
 import { Worker, Job } from 'bullmq';
 import { logger } from '../utils/logger.js';
+import { WebhookJobData } from '../types/webhook.types.js';
 
 const connection = {
     host: process.env.REDIS_HOST || 'localhost',
     port: parseInt(process.env.REDIS_PORT || '6379'),
 };
-
-interface WebhookJobData {
-    url: string;
-    event: string;
-    data: any;
-    timestamp: number;
-    sessionId?: string;
-    requestId?: string; // Track request ID if available
-}
 
 export const webhookWorker = new Worker<WebhookJobData>(
     'webhookQueue',

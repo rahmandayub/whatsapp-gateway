@@ -1,641 +1,108 @@
-import makeWASocket, {
-    useMultiFileAuthState,
-    DisconnectReason,
-    WASocket,
-    ConnectionState,
-    BaileysEventMap,
-    proto,
-    AnyMessageContent,
-} from '@whiskeysockets/baileys';
-import { Boom } from '@hapi/boom';
-import pino from 'pino';
-import fs from 'fs';
-import path from 'path';
-import qrcode from 'qrcode-terminal';
-import pool from '../config/database.js';
+// Temporary Bridge to keep existing API working while refactoring
+// Phase 3.1: We will replace the monolithic service with the new modular one.
+import { SessionManager } from './session/SessionManager.js';
+import { MessageSender } from './message/MessageSender.js';
 import templateService from './templateService.js';
-import { CONFIG } from '../config/paths.js';
-import { webhookQueue } from '../queues/webhookQueue.js';
+import { WebhookDispatcher } from './webhook/WebhookDispatcher.js';
 
-interface SessionData {
-    sock: WASocket;
-    status: string;
-    webhookUrl?: string | null;
-    qr?: string | null;
-    whatsappId?: string;
-    reconnectAttempts: number;
-    lastReconnectAt?: number;
-}
+// We need to implement the message listening logic that was in startSession
+// For now, we'll patch it into SessionManager or handle it here?
+// Ideally, SessionManager handles connection logic.
+// We can attach the message listener in SessionManager.startSession
 
-interface MessageLogEntry {
-    id: string;
-    sessionId: string;
-    direction: 'incoming' | 'outgoing';
-    timestamp: string;
-    [key: string]: any;
-}
-
-interface StartSessionResponse {
-    status: string;
-    message: string;
-    sessionId?: string;
-}
-
-interface WebhookData {
-    event: string;
-    [key: string]: any;
-}
-
-class WhatsAppService {
-    private sessions: Map<string, SessionData>;
-    private messageLog: MessageLogEntry[];
-    private maxLogSize: number;
+class WhatsAppServiceBridge {
+    public sessionManager: SessionManager;
+    public messageSender: MessageSender;
+    public webhookDispatcher: WebhookDispatcher;
+    private messageLog: any[] = []; // Temporary log until DB log phase
 
     constructor() {
-        this.sessions = new Map();
-        this.messageLog = []; // In-memory message event log (not persisted)
-        this.maxLogSize = 100; // Keep last 100 messages
+        this.sessionManager = new SessionManager();
+        this.messageSender = new MessageSender(this.sessionManager);
+        this.webhookDispatcher = new WebhookDispatcher();
     }
 
-    addToLog(
-        sessionId: string,
-        direction: 'incoming' | 'outgoing',
-        message: any,
-    ) {
-        this.messageLog.unshift({
-            id: Date.now().toString(),
-            sessionId,
-            direction, // 'incoming' or 'outgoing'
-            ...message,
-            timestamp: new Date().toISOString(),
-        });
-        // Trim log to max size
-        if (this.messageLog.length > this.maxLogSize) {
-            this.messageLog.pop();
-        }
-    }
+    // Delegate methods
+    async startSession(sessionId: string, webhookUrl?: string | null) {
+        const res = await this.sessionManager.startSession(sessionId, webhookUrl);
 
-    getMessageLog(sessionId: string | null = null) {
-        if (sessionId) {
-            return this.messageLog.filter((m) => m.sessionId === sessionId);
-        }
-        return this.messageLog;
-    }
-
-    async sendWebhook(
-        url: string | undefined | null,
-        event: string,
-        data: any,
-    ) {
-        if (!url) return;
-
-        // Push to queue instead of sending immediately
-        await webhookQueue.add('webhook', {
-            url,
-            event,
-            data,
-            timestamp: Date.now()
-        });
-    }
-
-    async startSession(
-        sessionId: string,
-        webhookUrl?: string | null,
-    ): Promise<StartSessionResponse> {
-        // DB Persistence & Ownership Check
-        const client = await pool.connect();
-        try {
-            const checkQuery = 'SELECT * FROM sessions WHERE session_id = $1';
-            const { rows } = await client.query(checkQuery, [sessionId]);
-
-            if (rows.length > 0) {
-                const existingSession = rows[0];
-
-                // Allow resume: if no webhookUrl provided, use the stored one
-                if (!webhookUrl) {
-                    webhookUrl = existingSession.webhook_url;
-                } else if (
-                    existingSession.webhook_url &&
-                    existingSession.webhook_url !== webhookUrl
-                ) {
-                    // Ownership check only if both are provided and differ
-                    return {
-                        status: 'error',
-                        message:
-                            'Session ID exists but ownership verification failed (Webhook URL mismatch).',
-                    };
-                }
-
-                // If it exists in DB but not in memory, we allow reconnection
-                if (this.sessions.has(sessionId)) {
-                    return {
-                        status: 'already_active',
-                        message: 'Session already active',
-                    };
-                }
-            } else {
-                // New session
-                const insertQuery =
-                    'INSERT INTO sessions (session_id, webhook_url, status) VALUES ($1, $2, $3)';
-                await client.query(insertQuery, [
-                    sessionId,
-                    webhookUrl,
-                    'CONNECTING',
-                ]);
-            }
-        } finally {
-            client.release();
-        }
-
-        const authPath = path.join(CONFIG.AUTH_DIR, sessionId);
-        if (!fs.existsSync(authPath)) {
-            fs.mkdirSync(authPath, { recursive: true });
-        }
-
-        const { state, saveCreds } = await useMultiFileAuthState(authPath);
-
-        const sock = makeWASocket({
-            logger: pino({ level: 'silent' }) as any, // Suppress internal logs
-            printQRInTerminal: false, // We handle QR via events
-            auth: state,
-        });
-
-        this.sessions.set(sessionId, {
-            sock,
-            status: 'CONNECTING',
-            webhookUrl,
-            qr: null,
-            reconnectAttempts: 0
-        });
-
-        sock.ev.on('creds.update', saveCreds);
-
-        sock.ev.on(
-            'connection.update',
-            async (update: Partial<ConnectionState>) => {
-                const { connection, lastDisconnect, qr } = update;
-                const sessionData = this.sessions.get(sessionId);
-
-                // if (!sessionData) return; // Don't return, we might need to handle cleanup/reconnect even if map is stale? No, keep it safe.
-                if (!sessionData) return;
-
-                if (qr) {
-                    if (sessionData) {
-                        sessionData.status = 'SCANNING_QR';
-                        sessionData.qr = qr;
-                        await pool.query(
-                            'UPDATE sessions SET status = $1 WHERE session_id = $2',
-                            ['SCANNING_QR', sessionId],
-                        );
-                    }
-                    console.log(`[${sessionId}] QR Code generated`);
-                    qrcode.generate(qr, { small: true }); // Print to console
-                    await this.sendWebhook(webhookUrl, 'qr_code', {
-                        sessionId,
-                        qrCode: qr,
-                    });
-                }
-
-                if (connection === 'close') {
-                    const error = lastDisconnect?.error as Boom | undefined;
-                    const errorMessage = error?.message || 'Unknown Error';
-                    const statusCode = error?.output?.statusCode;
-
-                    const shouldReconnect =
-                        statusCode !== DisconnectReason.loggedOut;
-
-                    console.error(`[${sessionId}] Connection closed details:`, {
-                        message: errorMessage,
-                        statusCode: statusCode,
-                        shouldReconnect,
-                    });
-
-                    // CLEANUP: Remove session from map to allow 'startSession' to run again,
-                    // BUT keep track of attempts if we are reconnecting immediately via this logic
-                    // Actually, 'startSession' resets attempts if we don't pass them.
-                    // We should probably modify startSession or handle reconnection loop here.
-
-                    // The issue is: startSession creates a NEW socket.
-                    // We need to persist reconnectAttempts across restarts.
-                    // But startSession resets it currently.
-
-                    // Simple solution: Pass existing attempts to startSession?
-                    // No, startSession is public API.
-
-                    // Better: Store attempts in a separate Map or DB, or rely on startSession's internal logic?
-                    // Let's modify startSession to accept optional 'retryState' but that exposes internal logic.
-
-                    // Actually, if we just call startSession, it checks DB.
-                    // Let's use a private 'reconnectSession' method or just track it globally.
-
-                    // Or, we can just grab the attempts BEFORE deleting.
-                    const currentAttempts = sessionData?.reconnectAttempts || 0;
-                    this.sessions.delete(sessionId);
-
-                    if (shouldReconnect) {
-                        // Exponential Backoff
-                        // Cap at 5 minutes (300000ms)
-                        // Max attempts: 10?
-                        const maxAttempts = 10;
-                        if (currentAttempts >= maxAttempts) {
-                            console.error(`[${sessionId}] Max reconnection attempts (${maxAttempts}) reached. Giving up.`);
-                            await pool.query(
-                                'UPDATE sessions SET status = $1 WHERE session_id = $2',
-                                ['STOPPED_ERROR', sessionId],
-                            );
-                             await this.sendWebhook(
-                                webhookUrl,
-                                'connection_update',
-                                {
-                                    sessionId,
-                                    status: 'STOPPED_ERROR',
-                                    reason: 'Max reconnection attempts reached'
-                                },
-                            );
-                            return;
-                        }
-
-                        // Delay: 2^attempts * 1000ms
-                        const delay = Math.min(Math.pow(2, currentAttempts) * 1000, 300000);
-
-                        console.log(`[${sessionId}] Reconnecting in ${delay}ms (Attempt ${currentAttempts + 1}/${maxAttempts})`);
-
-                        setTimeout(
-                            async () => {
-                                // We need to tell startSession this is a retry.
-                                // But startSession initializes attempts to 0.
-                                // We can add a specialized method or optional param.
-                                // Since we can't easily change signature of public startSession without affecting API (though TS allows optional params),
-                                // Let's add an internal method or just hack it by setting it after start.
-
-                                // Actually, startSession returns a promise.
-                                const res = await this.startSession(sessionId, webhookUrl);
-                                // If successful (or pending), restore the counter
-                                const newSession = this.sessions.get(sessionId);
-                                if (newSession) {
-                                    newSession.reconnectAttempts = currentAttempts + 1;
-                                }
-                            },
-                            delay,
-                        );
-                    } else {
-                        await pool.query(
-                            'UPDATE sessions SET status = $1 WHERE session_id = $2',
-                            ['DISCONNECTED', sessionId],
-                        );
-                        await this.sendWebhook(
-                            webhookUrl,
-                            'connection_update',
-                            {
-                                sessionId,
-                                status: 'DISCONNECTED',
-                            },
-                        );
-                    }
-                } else if (connection === 'open') {
-                    console.log(`[${sessionId}] Connected`);
-                    const waId = sock.user?.id;
-                    if (sessionData) {
-                        sessionData.status = 'CONNECTED';
-                        sessionData.qr = null; // Clear QR on success
-                        sessionData.whatsappId = waId;
-                        sessionData.reconnectAttempts = 0; // Reset attempts on success
-                    }
-                    await pool.query(
-                        'UPDATE sessions SET status = $1, whatsapp_id = $2 WHERE session_id = $3',
-                        ['CONNECTED', waId, sessionId],
-                    );
-                    await this.sendWebhook(webhookUrl, 'connection_update', {
-                        sessionId,
-                        status: 'CONNECTED',
-                        whatsappId: waId,
-                    });
-                }
-            },
-        );
-
-        sock.ev.on('messages.upsert', async ({ messages }) => {
-            const sessionData = this.sessions.get(sessionId);
-            if (!sessionData) return;
-
-            for (const msg of messages) {
-                // Log all messages (incoming and outgoing from device)
-                const isFromMe = msg.key.fromMe;
-                const messageContent = msg.message;
-                const textContent =
-                    messageContent?.conversation ||
-                    messageContent?.extendedTextMessage?.text ||
-                    messageContent?.imageMessage?.caption ||
-                    messageContent?.videoMessage?.caption ||
-                    '[Media/Other]';
-
-                this.addToLog(sessionId, isFromMe ? 'outgoing' : 'incoming', {
-                    from: msg.key.remoteJid,
-                    type: Object.keys(messageContent || {})[0] || 'unknown',
-                    text: textContent,
-                    messageId: msg.key.id,
-                    pushName: msg.pushName,
-                });
-
-                if (!isFromMe && sessionData.webhookUrl) {
-                    await this.sendWebhook(
-                        sessionData.webhookUrl,
-                        'message_received',
-                        {
-                            sessionId,
-                            message: msg,
-                        },
-                    );
-                }
-            }
-        });
-
-        return {
-            status: 'pending',
-            message: 'Session initiation started',
-            sessionId,
-        };
-    }
-
-    async getSessionStatus(sessionId: string) {
-        const session = this.sessions.get(sessionId);
+        // Attach message listener - We need access to the socket.
+        // SessionManager doesn't expose socket directly via public API except via getSession
+        const session = this.sessionManager.getSession(sessionId);
         if (session) {
-            return {
-                sessionId,
-                status: session.status,
-                whatsappId: session.whatsappId,
-            };
-        }
-
-        // Check DB if not in memory
-        try {
-            const result = await pool.query(
-                'SELECT status, whatsapp_id FROM sessions WHERE session_id = $1',
-                [sessionId],
-            );
-            if (result.rows.length > 0) {
-                return {
-                    sessionId,
-                    status: result.rows[0].status,
-                    whatsappId: result.rows[0].whatsapp_id,
-                };
-            }
-        } catch (error) {
-            console.error('Error fetching session status from DB:', error);
-        }
-
-        return null;
-    }
-
-    getQRCode(sessionId: string) {
-        const session = this.sessions.get(sessionId);
-        if (!session) return null;
-        return {
-            sessionId,
-            status: session.status,
-            qr: session.qr,
-        };
-    }
-
-    async getAllSessions() {
-        try {
-            const result = await pool.query(
-                'SELECT session_id, status, whatsapp_id FROM sessions ORDER BY created_at DESC',
-            );
-            const sessionsList = result.rows.map((row) => {
-                // Check if session is active in memory for real-time status
-                const inMemorySession = this.sessions.get(row.session_id);
-                return {
-                    sessionId: row.session_id,
-                    status: inMemorySession
-                        ? inMemorySession.status
-                        : row.status,
-                    whatsappId: inMemorySession
-                        ? inMemorySession.whatsappId
-                        : row.whatsapp_id,
-                };
+            session.sock.ev.on('messages.upsert', async ({ messages }: any) => {
+                for (const msg of messages) {
+                    const isFromMe = msg.key.fromMe;
+                    // Logging logic (simplified)
+                    if (!isFromMe && session.webhookUrl) {
+                        await this.webhookDispatcher.dispatch(session.webhookUrl, 'message_received', {
+                            sessionId,
+                            message: msg
+                        });
+                    }
+                    // Add to temp log
+                    this.messageLog.unshift({
+                         id: Date.now().toString(),
+                         sessionId,
+                         direction: isFromMe ? 'outgoing' : 'incoming',
+                         timestamp: new Date().toISOString(),
+                         // ... details
+                    });
+                    if (this.messageLog.length > 100) this.messageLog.pop();
+                }
             });
-            return sessionsList;
-        } catch (error) {
-            console.error('Error fetching sessions from DB:', error);
-            // Fallback to in-memory only
-            const sessionsList = [];
-            for (const [id, data] of this.sessions.entries()) {
-                sessionsList.push({
-                    sessionId: id,
-                    status: data.status,
-                    whatsappId: data.whatsappId,
-                });
-            }
-            return sessionsList;
         }
+        return res;
     }
 
     async stopSession(sessionId: string) {
-        const session = this.sessions.get(sessionId);
-        if (!session) {
-            // Even if not in memory, check DB to ensure status is updated if it was stuck
-            await pool.query(
-                'UPDATE sessions SET status = $1 WHERE session_id = $2',
-                ['STOPPED', sessionId],
-            );
-            return {
-                status: 'success',
-                message: 'Session stopped (or was already inactive)',
-            };
-        }
-
-        try {
-            // SOFT STOP: Do NOT logout, just close socket to stop validation/traffic
-            this.sessions.delete(sessionId);
-            session.sock.end(undefined);
-            await pool.query(
-                'UPDATE sessions SET status = $1 WHERE session_id = $2',
-                ['STOPPED', sessionId],
-            );
-            console.log(`[${sessionId}] Session stopped`);
-            return { status: 'success', message: 'Session stopped' };
-        } catch (error: any) {
-            this.sessions.delete(sessionId);
-            return {
-                status: 'error',
-                message: 'Error stopping session',
-                error: error.message,
-            };
-        }
+        return this.sessionManager.stopSession(sessionId);
     }
 
     async logoutSession(sessionId: string) {
-        const session = this.sessions.get(sessionId);
-        const authPath = path.join(CONFIG.AUTH_DIR, sessionId);
-
-        try {
-            if (session) {
-                this.sessions.delete(sessionId);
-                await session.sock.logout(); // Actual Logout from WA
-                session.sock.end(undefined);
-            } else {
-                // Try to load state just to logout?
-                // It's tricky if we don't have the sock.
-                // For now, we assume if it's not in memory, we just clean up files.
-                // Ideally we should try to restore and logout, but that's complex.
-                // We will just proceed to delete files which effectively invalidates local credentials.
-            }
-
-            // Delete Auth Files
-            if (fs.existsSync(authPath)) {
-                fs.rmSync(authPath, { recursive: true, force: true });
-            }
-
-            // Remove from DB
-            await pool.query('DELETE FROM sessions WHERE session_id = $1', [
-                sessionId,
-            ]);
-
-            return {
-                status: 'success',
-                message: 'Session logged out and data cleared',
-            };
-        } catch (error: any) {
-            console.error(`Logout failed for ${sessionId}`, error);
-            // Attempt cleanup anyway
-            if (fs.existsSync(authPath)) {
-                fs.rmSync(authPath, { recursive: true, force: true });
-            }
-            await pool.query('DELETE FROM sessions WHERE session_id = $1', [
-                sessionId,
-            ]);
-
-            return {
-                status: 'error',
-                message: 'Error during logout (cleanup attempted)',
-                error: error.message,
-            };
-        }
+        return this.sessionManager.logoutSession(sessionId);
     }
 
-    async sendTextMessage(sessionId: string, to: string, text: string) {
-        const session = this.sessions.get(sessionId);
-        if (!session) throw new Error('Session not found');
-
-        const result = await session.sock.sendMessage(to, { text });
-
-        return result;
+    async getSessionStatus(sessionId: string) {
+        return this.sessionManager.getSessionStatus(sessionId);
     }
 
-    async sendMediaMessage(
-        sessionId: string,
-        to: string,
-        type: 'image' | 'video' | 'document',
-        mediaUrl: string,
-        caption?: string,
-    ) {
-        const session = this.sessions.get(sessionId);
-        if (!session) throw new Error('Session not found');
-
-        // Dynamically create the content object, ensuring the type is one of the allowed keys
-        // The type argument is 'image' | 'video' | 'document' which matches keys in AnyMessageContent
-        // but TypeScript needs to know that.
-        const messageContent = {
-            [type]: { url: mediaUrl },
-            caption,
-        } as unknown as AnyMessageContent;
-
-        const result = await session.sock.sendMessage(to, messageContent);
-
-        return result;
+    async getAllSessions() {
+        return this.sessionManager.getAllSessionsStatus();
     }
 
-    async sendFileMessage(
-        sessionId: string,
-        to: string,
-        fileObj: Express.Multer.File,
-        caption?: string,
-    ) {
-        const session = this.sessions.get(sessionId);
-        if (!session) throw new Error('Session not found');
-
-        const buffer = fs.readFileSync(fileObj.path);
-        const mimeType = fileObj.mimetype;
-        const fileName = fileObj.originalname;
-
-        // Determine type based on mime
-        let messageContent: AnyMessageContent = {} as AnyMessageContent;
-
-        if (mimeType.startsWith('image/')) {
-            messageContent = { image: buffer, caption, mimetype: mimeType };
-        } else if (mimeType.startsWith('video/')) {
-            messageContent = { video: buffer, caption, mimetype: mimeType };
-        } else if (mimeType.startsWith('audio/')) {
-            messageContent = { audio: buffer, mimetype: mimeType, ptt: false }; // Normal audio
-        } else {
-            // Default to document
-            messageContent = {
-                document: buffer,
-                caption,
-                mimetype: mimeType,
-                fileName: fileName,
-            };
-        }
-
-        const result = await session.sock.sendMessage(to, messageContent);
-        return result;
-    }
-
-    async sendTemplateMessage(
-        sessionId: string,
-        to: string,
-        templateName: string,
-        variables?: Record<string, string>,
-    ) {
-        const session = this.sessions.get(sessionId);
-        if (!session) throw new Error('Session not found');
-
-        const template = await templateService.getTemplateByName(templateName);
-        if (!template) throw new Error(`Template '${templateName}' not found`);
-
-        const text = templateService.renderTemplate(template, variables);
-        const result = await session.sock.sendMessage(to, { text });
-
-        return result;
+    getQRCode(sessionId: string) {
+        return this.sessionManager.getQRCode(sessionId);
     }
 
     async restoreSessions() {
-        const client = await pool.connect();
-        try {
-            const query =
-                "SELECT * FROM sessions WHERE status != 'STOPPED' AND status != 'STOPPED_ERROR'";
-            const { rows } = await client.query(query);
+        return this.sessionManager.restoreSessions();
+    }
 
-            console.log(`Restoring ${rows.length} sessions...`);
+    // Message methods
+    async sendTextMessage(sessionId: string, to: string, text: string) {
+        return this.messageSender.sendText(sessionId, to, text);
+    }
 
-            for (const row of rows) {
-                console.log(`Restoring session: ${row.session_id}`);
-                // Use a different method or flags if restart behavior differs significantly,
-                // but for now, startSession handles existence checks (we might need to tweak it to allow stored-but-not-in-memory sessions).
+    async sendMediaMessage(sessionId: string, to: string, type: 'image' | 'video' | 'document', mediaUrl: string, caption?: string) {
+        return this.messageSender.sendMedia(sessionId, to, type, mediaUrl, caption);
+    }
 
-                // Note: startSession checks strictly for ownership. Since we pull from DB, it's owned.
-                // It also checks `this.sessions.has(sessionId)`. Since we just started resource, map is empty.
-                // So this should effectively restart them.
+    async sendFileMessage(sessionId: string, to: string, fileObj: any, caption?: string) {
+        return this.messageSender.sendFile(sessionId, to, fileObj, caption);
+    }
 
-                this.startSession(row.session_id, row.webhook_url).catch(
-                    (err) => {
-                        console.error(
-                            `Failed to restore session ${row.session_id}:`,
-                            err,
-                        );
-                    },
-                );
+    async sendTemplateMessage(sessionId: string, to: string, templateName: string, variables?: Record<string, string>) {
+        const template = await templateService.getTemplateByName(templateName);
+        if (!template) throw new Error(`Template '${templateName}' not found`);
+        const text = templateService.renderTemplate(template, variables);
+        return this.messageSender.sendText(sessionId, to, text);
+    }
 
-                // Add delay to prevent CPU spike
-                await new Promise((resolve) => setTimeout(resolve, 500));
-            }
-        } catch (error) {
-            console.error('Failed to restore sessions:', error);
-        } finally {
-            client.release();
-        }
+    getMessageLog(sessionId: string | null) {
+        if (sessionId) return this.messageLog.filter(m => m.sessionId === sessionId);
+        return this.messageLog;
     }
 }
 
-export default new WhatsAppService();
+export default new WhatsAppServiceBridge();

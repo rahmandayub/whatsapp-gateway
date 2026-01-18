@@ -9,7 +9,16 @@ import path from 'path';
 import fs from 'fs';
 
 // Mock dependencies
-vi.mock('../../services/whatsappService.js');
+vi.mock('../../services/whatsappService.js', () => ({
+    default: {
+        getSessionStatus: vi.fn().mockResolvedValue({ status: 'CONNECTED' }),
+        startSession: vi.fn(),
+        stopSession: vi.fn(),
+        logoutSession: vi.fn(),
+        // Add other methods as needed or use partial mock
+    }
+}));
+
 vi.mock('../../queues/messageQueue.js', () => ({
     messageQueue: {
         add: vi.fn().mockResolvedValue({ id: 'job_123' })
