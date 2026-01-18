@@ -8,6 +8,9 @@ import path from 'path';
 import pool from './config/database.js';
 import sessionRoutes from './routes/sessionRoutes.js';
 import templateRoutes from './routes/templateRoutes.js';
+import healthRoutes from './routes/healthRoutes.js';
+import metricsRoutes from './routes/metricsRoutes.js';
+import docsRoutes from './routes/docsRoutes.js';
 import apiKeyAuth from './middlewares/authMiddleware.js';
 import whatsAppService from './services/whatsappService.js';
 import './workers/messageWorker.js'; // Initialize message worker
@@ -17,6 +20,7 @@ import { gracefulShutdown } from './shutdown.js';
 import { requestId } from './middlewares/requestId.js';
 import { errorHandler } from './middlewares/errorHandler.js';
 import { logger } from './utils/logger.js';
+import { metricsMiddleware } from './middlewares/metricsMiddleware.js';
 
 dotenv.config();
 
@@ -60,6 +64,7 @@ app.use(
 app.use(cors());
 app.use(express.json());
 app.use(requestId); // Add Request ID middleware
+app.use(metricsMiddleware); // Add Prometheus metrics
 app.use(limiter);
 
 // Serve static files for Admin Panel
@@ -69,14 +74,15 @@ const publicPath = path.join(process.cwd(), 'src', 'public');
 app.use('/admin', express.static(publicPath));
 app.use(express.static(publicPath));
 
+// Public Routes
+app.use('/health', healthRoutes);
+app.use('/metrics', metricsRoutes);
+app.use('/docs', docsRoutes);
+
 // API Routes (Protected)
 app.use('/api/v1', apiKeyAuth); // Apply auth middleware to all /api/v1 routes
 app.use('/api/v1/sessions', sessionRoutes);
 app.use('/api/v1/templates', templateRoutes);
-
-app.get('/health', (req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
 
 // Global Error Handler
 app.use(errorHandler);

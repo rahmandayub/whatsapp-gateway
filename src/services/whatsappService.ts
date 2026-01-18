@@ -24,35 +24,7 @@ class WhatsAppServiceBridge {
 
     // Delegate methods
     async startSession(sessionId: string, webhookUrl?: string | null) {
-        const res = await this.sessionManager.startSession(sessionId, webhookUrl);
-
-        // Attach message listener - We need access to the socket.
-        // SessionManager doesn't expose socket directly via public API except via getSession
-        const session = this.sessionManager.getSession(sessionId);
-        if (session) {
-            session.sock.ev.on('messages.upsert', async ({ messages }: any) => {
-                for (const msg of messages) {
-                    const isFromMe = msg.key.fromMe;
-                    // Logging logic (simplified)
-                    if (!isFromMe && session.webhookUrl) {
-                        await this.webhookDispatcher.dispatch(session.webhookUrl, 'message_received', {
-                            sessionId,
-                            message: msg
-                        });
-                    }
-                    // Add to temp log
-                    this.messageLog.unshift({
-                         id: Date.now().toString(),
-                         sessionId,
-                         direction: isFromMe ? 'outgoing' : 'incoming',
-                         timestamp: new Date().toISOString(),
-                         // ... details
-                    });
-                    if (this.messageLog.length > 100) this.messageLog.pop();
-                }
-            });
-        }
-        return res;
+        return await this.sessionManager.startSession(sessionId, webhookUrl);
     }
 
     async stopSession(sessionId: string) {

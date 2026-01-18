@@ -156,18 +156,21 @@ export const sendFile = asyncHandler(async (req: Request, res: Response) => {
 
     const jobs = [];
     try {
-        for (let i = 0; i < files.length; i++) {
-            const file = files[i];
-            const fileCaption = captionsArray[i] || '';
-
+        // First pass: Validation
+        for (const file of files) {
             // Task 1.3.3: MIME type validation
             const isValidSignature = await validateFileSignature(file.path, file.mimetype);
             if (!isValidSignature) {
-                // We must cleanup all files if one fails, or at least the current one
-                // Decisions: Fail the whole batch? Yes, clearer API response.
+                // Fail the whole batch before queueing anything
                 cleanupFiles();
                 throw new ValidationError(`Security validation failed for file: ${file.originalname}. Content does not match extension/type.`);
             }
+        }
+
+        // Second pass: Queueing
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            const fileCaption = captionsArray[i] || '';
 
             const job = await messageQueue.add('file', {
                 sessionId,
