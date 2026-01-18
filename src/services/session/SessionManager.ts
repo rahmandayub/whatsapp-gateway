@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { CONFIG } from '../../config/paths.js';
-import makeWASocket, { useMultiFileAuthState, WASocket } from '@whiskeysockets/baileys';
+import makeWASocket, { useMultiFileAuthState } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import { SessionStore } from './SessionStore.js';
 import { SessionRepository } from '../../repositories/SessionRepository.js';
@@ -29,7 +29,9 @@ export class SessionManager {
             this.sessionStore,
             this.sessionRepo,
             this.webhookDispatcher,
-            this.startSession.bind(this) // Callback for reconnection
+            async (sessionId) => {
+                await this.startSession(sessionId);
+            }, // Callback for reconnection
         );
     }
 
@@ -47,15 +49,25 @@ export class SessionManager {
         const existingSession = await this.sessionRepo.findById(sessionId);
 
         if (existingSession) {
-             if (!webhookUrl) {
-                 webhookUrl = existingSession.webhook_url;
-             } else if (existingSession.webhook_url && existingSession.webhook_url !== webhookUrl) {
-                 throw new AppError('Session ID exists but ownership verification failed', 403, 'FORBIDDEN');
-             }
+            if (!webhookUrl) {
+                webhookUrl = existingSession.webhook_url;
+            } else if (
+                existingSession.webhook_url &&
+                existingSession.webhook_url !== webhookUrl
+            ) {
+                throw new AppError(
+                    'Session ID exists but ownership verification failed',
+                    403,
+                    'FORBIDDEN',
+                );
+            }
 
-             if (this.sessionStore.has(sessionId)) {
-                 return { status: 'already_active', message: 'Session already active' };
-             }
+            if (this.sessionStore.has(sessionId)) {
+                return {
+                    status: 'already_active',
+                    message: 'Session already active',
+                };
+            }
         } else {
             await this.sessionRepo.create(sessionId, webhookUrl || null);
         }
@@ -78,12 +90,12 @@ export class SessionManager {
             status: 'CONNECTING',
             webhookUrl,
             qr: null,
-            reconnectAttempts: 0
+            reconnectAttempts: 0,
         });
 
         sock.ev.on('creds.update', saveCreds);
         sock.ev.on('connection.update', (update) =>
-            this.connectionHandler.handleConnectionUpdate(sessionId, update)
+            this.connectionHandler.handleConnectionUpdate(sessionId, update),
         );
 
         sock.ev.on('messages.upsert', async ({ messages }) => {
@@ -105,11 +117,12 @@ export class SessionManager {
                     await this.messageLogRepo.create({
                         session_id: sessionId,
                         direction: isFromMe ? 'outgoing' : 'incoming',
-                        message_id: msg.key.id,
+                        message_id: msg.key.id || undefined,
                         recipient: msg.key.remoteJid || 'unknown',
-                        message_type: Object.keys(messageContent || {})[0] || 'unknown',
+                        message_type:
+                            Object.keys(messageContent || {})[0] || 'unknown',
                         content_preview: textContent?.slice(0, 200), // Limit preview size
-                        status: 'sent' // Default for now
+                        status: 'sent', // Default for now
                     });
                 } catch (err) {
                     logger.error({ err }, 'Failed to log message');
@@ -128,26 +141,37 @@ export class SessionManager {
             }
         });
 
-        return { status: 'pending', message: 'Session initiation started', sessionId };
+        return {
+            status: 'pending',
+            message: 'Session initiation started',
+            sessionId,
+        };
     }
 
-    async stopSession(sessionId: string) {
+    async stopSession(sessionId: string, finalStatus: string = 'STOPPED') {
         const session = this.sessionStore.get(sessionId);
 
         if (!session) {
-            await this.sessionRepo.updateStatus(sessionId, 'STOPPED');
-            return { status: 'success', message: 'Session stopped (was inactive)' };
+            await this.sessionRepo.updateStatus(sessionId, finalStatus);
+            return {
+                status: 'success',
+                message: 'Session stopped (was inactive)',
+            };
         }
 
         try {
             this.sessionStore.delete(sessionId);
             session.sock.end(undefined);
-            await this.sessionRepo.updateStatus(sessionId, 'STOPPED');
+            await this.sessionRepo.updateStatus(sessionId, finalStatus);
             logger.info({ sessionId }, 'Session stopped');
             return { status: 'success', message: 'Session stopped' };
         } catch (error: any) {
             this.sessionStore.delete(sessionId);
-            throw new AppError(`Error stopping session: ${error.message}`, 500, 'STOP_ERROR');
+            throw new AppError(
+                `Error stopping session: ${error.message}`,
+                500,
+                'STOP_ERROR',
+            );
         }
     }
 
@@ -167,14 +191,21 @@ export class SessionManager {
             }
 
             await this.sessionRepo.delete(sessionId);
-            return { status: 'success', message: 'Session logged out and data cleared' };
+            return {
+                status: 'success',
+                message: 'Session logged out and data cleared',
+            };
         } catch (error: any) {
-             // Cleanup anyway
+            // Cleanup anyway
             if (fs.existsSync(authPath)) {
                 fs.rmSync(authPath, { recursive: true, force: true });
             }
             await this.sessionRepo.delete(sessionId);
-            throw new AppError(`Error logging out: ${error.message}`, 500, 'LOGOUT_ERROR');
+            throw new AppError(
+                `Error logging out: ${error.message}`,
+                500,
+                'LOGOUT_ERROR',
+            );
         }
     }
 
@@ -185,11 +216,17 @@ export class SessionManager {
         for (const session of sessions) {
             try {
                 // startSession signature: sessionId, webhookUrl
-                await this.startSession(session.session_id, session.webhook_url);
+                await this.startSession(
+                    session.session_id,
+                    session.webhook_url,
+                );
             } catch (err) {
-                logger.error({ sessionId: session.session_id, err }, 'Failed to restore session');
+                logger.error(
+                    { sessionId: session.session_id, err },
+                    'Failed to restore session',
+                );
             }
-            await new Promise(resolve => setTimeout(resolve, 500)); // Throttling
+            await new Promise((resolve) => setTimeout(resolve, 500)); // Throttling
         }
     }
 
@@ -197,12 +234,20 @@ export class SessionManager {
     async getSessionStatus(sessionId: string) {
         const session = this.sessionStore.get(sessionId);
         if (session) {
-            return { sessionId, status: session.status, whatsappId: session.whatsappId };
+            return {
+                sessionId,
+                status: session.status,
+                whatsappId: session.whatsappId,
+            };
         }
 
         const dbSession = await this.sessionRepo.findById(sessionId);
         if (dbSession) {
-            return { sessionId, status: dbSession.status, whatsappId: dbSession.whatsapp_id };
+            return {
+                sessionId,
+                status: dbSession.status,
+                whatsappId: dbSession.whatsapp_id,
+            };
         }
         return null;
     }
@@ -213,19 +258,21 @@ export class SessionManager {
 
     getQRCode(sessionId: string) {
         const session = this.sessionStore.get(sessionId);
-        return session ? { sessionId, status: session.status, qr: session.qr } : null;
+        return session
+            ? { sessionId, status: session.status, qr: session.qr }
+            : null;
     }
 
     async getAllSessionsStatus() {
         // Merge DB and Memory
         const dbSessions = await this.sessionRepo.findAll();
-        return dbSessions.map(row => {
-             const mem = this.sessionStore.get(row.session_id);
-             return {
-                 sessionId: row.session_id,
-                 status: mem ? mem.status : row.status,
-                 whatsappId: mem ? mem.whatsappId : row.whatsapp_id
-             };
+        return dbSessions.map((row: any) => {
+            const mem = this.sessionStore.get(row.session_id);
+            return {
+                sessionId: row.session_id,
+                status: mem ? mem.status : row.status,
+                whatsappId: mem ? mem.whatsappId : row.whatsapp_id,
+            };
         });
     }
 }

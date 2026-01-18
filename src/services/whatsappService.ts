@@ -27,8 +27,8 @@ class WhatsAppServiceBridge {
         return await this.sessionManager.startSession(sessionId, webhookUrl);
     }
 
-    async stopSession(sessionId: string) {
-        return this.sessionManager.stopSession(sessionId);
+    async stopSession(sessionId: string, finalStatus?: string) {
+        return this.sessionManager.stopSession(sessionId, finalStatus);
     }
 
     async logoutSession(sessionId: string) {
@@ -56,15 +56,37 @@ class WhatsAppServiceBridge {
         return this.messageSender.sendText(sessionId, to, text);
     }
 
-    async sendMediaMessage(sessionId: string, to: string, type: 'image' | 'video' | 'document', mediaUrl: string, caption?: string) {
-        return this.messageSender.sendMedia(sessionId, to, type, mediaUrl, caption);
+    async sendMediaMessage(
+        sessionId: string,
+        to: string,
+        type: 'image' | 'video' | 'document',
+        mediaUrl: string,
+        caption?: string,
+    ) {
+        return this.messageSender.sendMedia(
+            sessionId,
+            to,
+            type,
+            mediaUrl,
+            caption,
+        );
     }
 
-    async sendFileMessage(sessionId: string, to: string, fileObj: any, caption?: string) {
+    async sendFileMessage(
+        sessionId: string,
+        to: string,
+        fileObj: any,
+        caption?: string,
+    ) {
         return this.messageSender.sendFile(sessionId, to, fileObj, caption);
     }
 
-    async sendTemplateMessage(sessionId: string, to: string, templateName: string, variables?: Record<string, string>) {
+    async sendTemplateMessage(
+        sessionId: string,
+        to: string,
+        templateName: string,
+        variables?: Record<string, string>,
+    ) {
         const template = await templateService.getTemplateByName(templateName);
         if (!template) throw new Error(`Template '${templateName}' not found`);
         const text = templateService.renderTemplate(template, variables);

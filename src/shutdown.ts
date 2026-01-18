@@ -10,7 +10,9 @@ export const gracefulShutdown = async (server: Server) => {
 
     // Force exit if shutdown takes too long (30s)
     setTimeout(() => {
-        logger.error('Could not close connections in time, forcefully shutting down');
+        logger.error(
+            'Could not close connections in time, forcefully shutting down',
+        );
         process.exit(1);
     }, 30000);
 
@@ -24,8 +26,11 @@ export const gracefulShutdown = async (server: Server) => {
         const sessions = await whatsAppService.getAllSessions();
         logger.info(`Stopping ${sessions.length} active sessions...`);
         for (const session of sessions) {
-             // We use stopSession to disconnect but preserve state
-             await whatsAppService.stopSession(session.sessionId);
+            // We use stopSession to disconnect but preserve state
+            await whatsAppService.stopSession(
+                session.sessionId,
+                'DISCONNECTED',
+            );
         }
 
         // 3. Pause/Close BullMQ
@@ -39,9 +44,8 @@ export const gracefulShutdown = async (server: Server) => {
 
         logger.info('Graceful shutdown complete');
         process.exit(0);
-
     } catch (error) {
-        logger.error('Error during graceful shutdown', error);
+        logger.error({ err: error }, 'Error during graceful shutdown');
         process.exit(1);
     }
 };

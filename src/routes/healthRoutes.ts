@@ -12,61 +12,66 @@ router.get('/live', (req: Request, res: Response) => {
 });
 
 // Readiness probe - checks dependencies
-router.get('/ready', asyncHandler(async (req: Request, res: Response) => {
-    const health = {
-        status: 'ok',
-        timestamp: new Date().toISOString(),
-        dependencies: {
-            database: 'unknown',
-            redis: 'unknown',
-        },
-        system: {
-            uptime: process.uptime(),
-            memory: process.memoryUsage(),
-        },
-        sessions: {
-            active: 0,
-            total: 0
+router.get(
+    '/ready',
+    asyncHandler(async (req: Request, res: Response) => {
+        const health = {
+            status: 'ok',
+            timestamp: new Date().toISOString(),
+            dependencies: {
+                database: 'unknown',
+                redis: 'unknown',
+            },
+            system: {
+                uptime: process.uptime(),
+                memory: process.memoryUsage(),
+            },
+            sessions: {
+                active: 0,
+                total: 0,
+            },
+        };
+
+        let isHealthy = true;
+
+        // Check Database
+        try {
+            await pool.query('SELECT 1');
+            health.dependencies.database = 'up';
+        } catch (err: any) {
+            health.dependencies.database = 'down';
+            isHealthy = false;
         }
-    };
 
-    let isHealthy = true;
+        // Check Redis (via BullMQ)
+        try {
+            const client = await webhookQueue.client;
+            await client.ping();
+            health.dependencies.redis = 'up';
+        } catch (err: any) {
+            health.dependencies.redis = 'down';
+            isHealthy = false;
+        }
 
-    // Check Database
-    try {
-        await pool.query('SELECT 1');
-        health.dependencies.database = 'up';
-    } catch (err: any) {
-        health.dependencies.database = 'down';
-        isHealthy = false;
-    }
+        // Session Stats
+        try {
+            const allSessions = await whatsAppService.getAllSessions();
+            health.sessions.total = allSessions.length;
+            health.sessions.active = allSessions.filter(
+                (s: any) => s.status === 'CONNECTED',
+            ).length;
+        } catch (err) {
+            // Non-critical for readiness? Maybe critical for business logic.
+            // Let's assume if DB is up, this works, else it failed above.
+        }
 
-    // Check Redis (via BullMQ)
-    try {
-        const client = await webhookQueue.client;
-        await client.ping();
-        health.dependencies.redis = 'up';
-    } catch (err: any) {
-        health.dependencies.redis = 'down';
-        isHealthy = false;
-    }
+        if (!isHealthy) {
+            health.status = 'error';
+            return res.status(503).json(health);
+        }
 
-    // Session Stats
-    try {
-        const allSessions = await whatsAppService.getAllSessions();
-        health.sessions.total = allSessions.length;
-        health.sessions.active = allSessions.filter(s => s.status === 'CONNECTED').length;
-    } catch (err) {
-        // Non-critical for readiness? Maybe critical for business logic.
-        // Let's assume if DB is up, this works, else it failed above.
-    }
-
-    if (!isHealthy) {
-        health.status = 'error';
-        return res.status(503).json(health);
-    }
-
-    res.status(200).json(health);
-}));
+        res.status(200).json(health);
+    }),
+);
 
 export default router;
