@@ -9,17 +9,20 @@ import { ConnectionHandler } from './ConnectionHandler.js';
 import { WebhookDispatcher } from '../webhook/WebhookDispatcher.js';
 import { logger } from '../../utils/logger.js';
 import { AppError } from '../../errors/AppError.js';
+import { MessageLogRepository } from '../../repositories/MessageLogRepository.js';
 
 export class SessionManager {
     private sessionStore: SessionStore;
     private sessionRepo: SessionRepository;
     private connectionHandler: ConnectionHandler;
     private webhookDispatcher: WebhookDispatcher;
+    private messageLogRepo: MessageLogRepository;
 
     constructor() {
         this.sessionStore = new SessionStore();
         this.sessionRepo = new SessionRepository();
         this.webhookDispatcher = new WebhookDispatcher();
+        this.messageLogRepo = new MessageLogRepository();
 
         // Circular dependency resolution: ConnectionHandler needs to call back into SessionManager
         this.connectionHandler = new ConnectionHandler(
@@ -83,13 +86,47 @@ export class SessionManager {
             this.connectionHandler.handleConnectionUpdate(sessionId, update)
         );
 
-        // TODO: Move message handling to MessageHandler (Phase 3.1)
-        // For now, minimal to keep functionality
-        // We will refactor message handling in next step or now?
-        // Let's add the message listener here but delegate to a method we will create later or now.
-        // Actually the plan said "Break Up WhatsAppService". MessageSender is for SENDING.
-        // Incoming messages logic was in WhatsAppService. We should extract that too.
-        // Maybe "IncomingMessageHandler".
+        sock.ev.on('messages.upsert', async ({ messages }) => {
+            const sessionData = this.sessionStore.get(sessionId);
+            if (!sessionData) return;
+
+            for (const msg of messages) {
+                const isFromMe = msg.key.fromMe;
+                const messageContent = msg.message;
+                const textContent =
+                    messageContent?.conversation ||
+                    messageContent?.extendedTextMessage?.text ||
+                    messageContent?.imageMessage?.caption ||
+                    messageContent?.videoMessage?.caption ||
+                    '[Media/Other]';
+
+                // Persist to DB
+                try {
+                    await this.messageLogRepo.create({
+                        session_id: sessionId,
+                        direction: isFromMe ? 'outgoing' : 'incoming',
+                        message_id: msg.key.id,
+                        recipient: msg.key.remoteJid || 'unknown',
+                        message_type: Object.keys(messageContent || {})[0] || 'unknown',
+                        content_preview: textContent?.slice(0, 200), // Limit preview size
+                        status: 'sent' // Default for now
+                    });
+                } catch (err) {
+                    logger.error({ err }, 'Failed to log message');
+                }
+
+                if (!isFromMe && sessionData.webhookUrl) {
+                    await this.webhookDispatcher.dispatch(
+                        sessionData.webhookUrl,
+                        'message_received',
+                        {
+                            sessionId,
+                            message: msg,
+                        },
+                    );
+                }
+            }
+        });
 
         return { status: 'pending', message: 'Session initiation started', sessionId };
     }
@@ -168,6 +205,10 @@ export class SessionManager {
             return { sessionId, status: dbSession.status, whatsappId: dbSession.whatsapp_id };
         }
         return null;
+    }
+
+    async getMessageLog(sessionId: string) {
+        return this.messageLogRepo.findBySessionId(sessionId);
     }
 
     getQRCode(sessionId: string) {

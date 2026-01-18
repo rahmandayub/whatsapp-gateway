@@ -99,9 +99,11 @@ class WhatsAppServiceBridge {
         return this.messageSender.sendText(sessionId, to, text);
     }
 
-    getMessageLog(sessionId: string | null) {
-        if (sessionId) return this.messageLog.filter(m => m.sessionId === sessionId);
-        return this.messageLog;
+    async getMessageLog(sessionId: string | null) {
+        if (!sessionId) return []; // API change: now requires sessionId for DB query, or we implement findAll in repo
+        // For backwards compatibility, if sessionId is null, return empty or implement findAll
+        // Let's rely on sessionManager to handle it.
+        return this.sessionManager.getMessageLog(sessionId);
     }
 }
 

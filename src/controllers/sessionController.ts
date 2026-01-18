@@ -197,6 +197,6 @@ export const sendFile = asyncHandler(async (req: Request, res: Response) => {
 
 export const getMessageLog = asyncHandler(async (req: Request, res: Response) => {
     const { sessionId } = req.params;
-    const log = whatsAppService.getMessageLog(sessionId || null);
+    const log = await whatsAppService.getMessageLog(sessionId || null);
     res.json({ status: 'success', messages: log });
 });
