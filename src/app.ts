@@ -2,21 +2,35 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
-import pino from 'pino';
 import rateLimit from 'express-rate-limit';
 import fs from 'fs';
 import path from 'path';
 import pool from './config/database.js';
 import sessionRoutes from './routes/sessionRoutes.js';
 import templateRoutes from './routes/templateRoutes.js';
+import healthRoutes from './routes/healthRoutes.js';
+import metricsRoutes from './routes/metricsRoutes.js';
+import docsRoutes from './routes/docsRoutes.js';
 import apiKeyAuth from './middlewares/authMiddleware.js';
 import whatsAppService from './services/whatsappService.js';
-import './workers/messageWorker.js'; // Initialize worker
+import './workers/messageWorker.js'; // Initialize message worker
+import './workers/webhookWorker.js'; // Initialize webhook worker
+import { CONFIG } from './config/paths.js';
+import { gracefulShutdown } from './shutdown.js';
+import { requestId } from './middlewares/requestId.js';
+import { errorHandler } from './middlewares/errorHandler.js';
+import { logger } from './utils/logger.js';
+import { metricsMiddleware } from './middlewares/metricsMiddleware.js';
 
 dotenv.config();
 
+// Task 1.2.4: Validate auth directory is not under public/
+if (!CONFIG.isPathSecure(CONFIG.AUTH_DIR)) {
+    console.error('FATAL: AUTH_DIR is configured inside the public directory. This is a security risk.');
+    process.exit(1);
+}
+
 const app = express();
-const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
@@ -49,6 +63,8 @@ app.use(
 );
 app.use(cors());
 app.use(express.json());
+app.use(requestId); // Add Request ID middleware
+app.use(metricsMiddleware); // Add Prometheus metrics
 app.use(limiter);
 
 // Serve static files for Admin Panel
@@ -58,14 +74,18 @@ const publicPath = path.join(process.cwd(), 'src', 'public');
 app.use('/admin', express.static(publicPath));
 app.use(express.static(publicPath));
 
+// Public Routes
+app.use('/health', healthRoutes);
+app.use('/metrics', metricsRoutes);
+app.use('/docs', docsRoutes);
+
 // API Routes (Protected)
 app.use('/api/v1', apiKeyAuth); // Apply auth middleware to all /api/v1 routes
 app.use('/api/v1/sessions', sessionRoutes);
 app.use('/api/v1/templates', templateRoutes);
 
-app.get('/health', (req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
+// Global Error Handler
+app.use(errorHandler);
 
 // Only listen if executed directly, not when imported
 // @ts-ignore
@@ -95,9 +115,13 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         whatsAppService.restoreSessions();
     });
 
-    app.listen(PORT, () => {
+    const server = app.listen(PORT, () => {
         logger.info(`Server running on port ${PORT}`);
     });
+
+    // Graceful Shutdown
+    process.on('SIGTERM', () => gracefulShutdown(server));
+    process.on('SIGINT', () => gracefulShutdown(server));
 }
 
 export { app, logger };

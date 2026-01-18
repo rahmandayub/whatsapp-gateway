@@ -1,4 +1,4 @@
-import pool from '../config/database.js';
+import { TemplateRepository } from '../repositories/TemplateRepository.js';
 
 interface TemplateData {
     name: string;
@@ -18,58 +18,38 @@ interface Template {
     name: string;
     content: string;
     language: string;
-    category: string | null;
+    category?: string; // Repository returns category as optional/string
     created_at: Date;
-    updated_at: Date;
+    updated_at?: Date; // Repository might not return updated_at explicitly in my interface yet, but DB has it.
 }
 
-const createTemplate = async (data: TemplateData): Promise<Template> => {
-    const { name, content, language, category } = data;
-    const query = `
-        INSERT INTO templates (name, content, language, category)
-        VALUES ($1, $2, $3, $4)
-        RETURNING *
-    `;
-    const values = [name, content, language || 'en', category];
-    const { rows } = await pool.query<Template>(query, values);
-    return rows[0];
+const templateRepo = new TemplateRepository();
+
+const createTemplate = async (data: TemplateData) => {
+    return templateRepo.create(data);
 };
 
-const getTemplateByName = async (name: string): Promise<Template | undefined> => {
-    const query = 'SELECT * FROM templates WHERE name = $1';
-    const { rows } = await pool.query<Template>(query, [name]);
-    return rows[0];
+const getTemplateByName = async (name: string) => {
+    return templateRepo.findByName(name);
 };
 
-const getAllTemplates = async (): Promise<Template[]> => {
-    const query = 'SELECT * FROM templates ORDER BY created_at DESC';
-    const { rows } = await pool.query<Template>(query);
-    return rows;
+const getAllTemplates = async () => {
+    return templateRepo.findAll();
 };
 
-const updateTemplate = async (name: string, data: TemplateUpdateData): Promise<Template | undefined> => {
-    const { content, language, category } = data;
-    const query = `
-        UPDATE templates
-        SET content = COALESCE($1, content),
-            language = COALESCE($2, language),
-            category = COALESCE($3, category),
-            updated_at = CURRENT_TIMESTAMP
-        WHERE name = $4
-        RETURNING *
-    `;
-    const values = [content, language, category, name];
-    const { rows } = await pool.query<Template>(query, values);
-    return rows[0];
+const updateTemplate = async (name: string, data: TemplateUpdateData) => {
+    return templateRepo.update(name, data);
 };
 
-const deleteTemplate = async (name: string): Promise<Template | undefined> => {
-    const query = 'DELETE FROM templates WHERE name = $1 RETURNING *';
-    const { rows } = await pool.query<Template>(query, [name]);
-    return rows[0];
+const deleteTemplate = async (name: string) => {
+    const existing = await templateRepo.findByName(name);
+    if (!existing) return undefined;
+
+    await templateRepo.delete(name);
+    return existing; // Return deleted object to maintain interface compatibility
 };
 
-const renderTemplate = (template: Template, variables: Record<string, string> = {}): string => {
+const renderTemplate = (template: { content: string }, variables: Record<string, string> = {}): string => {
     let rendered = template.content;
     for (const [key, value] of Object.entries(variables)) {
         // Replace {{key}} with value, globally

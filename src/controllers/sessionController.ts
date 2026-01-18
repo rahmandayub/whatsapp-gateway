@@ -3,77 +3,82 @@ import whatsAppService from '../services/whatsappService.js';
 import { messageQueue } from '../queues/messageQueue.js';
 import QRCode from 'qrcode';
 import fs from 'fs';
+import { validateFileSignature } from '../utils/fileValidation.js';
+import { asyncHandler } from '../utils/asyncHandler.js';
+import {
+    AppError,
+    NotFoundError,
+    ValidationError,
+} from '../errors/AppError.js';
 
-export const startSession = async (req: Request, res: Response) => {
-    try {
+export const startSession = asyncHandler(
+    async (req: Request, res: Response) => {
         const { sessionId, webhookUrl } = req.body;
+        // Joi middleware handles basic validation, but good to be safe
         if (!sessionId) {
-            return res
-                .status(400)
-                .json({ status: 'error', message: 'sessionId is required' });
+            throw new ValidationError('sessionId is required');
         }
         const result = await whatsAppService.startSession(
             sessionId,
             webhookUrl,
         );
         res.json(result);
-    } catch (error: any) {
-        res.status(500).json({ status: 'error', message: error.message });
-    }
-};
+    },
+);
 
-export const getSessionStatus = async (req: Request, res: Response) => {
-    try {
+export const getSessionStatus = asyncHandler(
+    async (req: Request, res: Response) => {
         const { sessionId } = req.params;
         const result = await whatsAppService.getSessionStatus(sessionId);
         if (!result) {
-            return res
-                .status(404)
-                .json({ status: 'not_found', message: 'Session not found' });
+            throw new NotFoundError('Session not found');
         }
         res.json(result);
-    } catch (error: any) {
-        res.status(500).json({ status: 'error', message: error.message });
-    }
-};
+    },
+);
 
-export const getSessions = async (req: Request, res: Response) => {
-    try {
-        const sessions = await whatsAppService.getAllSessions();
-        res.json({ sessions });
-    } catch (error: any) {
-        res.status(500).json({ status: 'error', message: error.message });
-    }
-};
+export const getSessions = asyncHandler(async (req: Request, res: Response) => {
+    const sessions = await whatsAppService.getAllSessions();
+    res.json({ sessions });
+});
 
-export const stopSession = async (req: Request, res: Response) => {
-    try {
-        const { sessionId } = req.params;
-        const result = await whatsAppService.stopSession(sessionId);
-        res.json(result);
-    } catch (error: any) {
-        res.status(500).json({ status: 'error', message: error.message });
-    }
-};
+export const stopSession = asyncHandler(async (req: Request, res: Response) => {
+    const { sessionId } = req.params;
+    const result = await whatsAppService.stopSession(sessionId);
+    res.json(result);
+});
 
-export const logoutSession = async (req: Request, res: Response) => {
-    try {
+export const logoutSession = asyncHandler(
+    async (req: Request, res: Response) => {
         const { sessionId } = req.params;
         const result = await whatsAppService.logoutSession(sessionId);
         res.json(result);
-    } catch (error: any) {
-        res.status(500).json({ status: 'error', message: error.message });
-    }
-};
+    },
+);
 
-export const getSessionQR = async (req: Request, res: Response) => {
-    try {
+export const getSessionQR = asyncHandler(
+    async (req: Request, res: Response) => {
         const { sessionId } = req.params;
         const result = whatsAppService.getQRCode(sessionId);
-        if (!result || !result.qr) {
-            return res
-                .status(404)
-                .json({ status: 'not_found', message: 'QR code not found' });
+        if (!result) {
+            throw new NotFoundError('Session not found');
+        }
+
+        if (result.status === 'CONNECTED') {
+            res.json({
+                status: 'CONNECTED',
+                message: 'Session already connected',
+            });
+            return;
+        }
+
+        if (!result.qr) {
+            // If we are connecting but no QR yet, or any other state without QR
+            res.status(404).json({
+                status: result.status,
+                message: 'QR code not available yet',
+            });
+            return;
         }
 
         try {
@@ -84,92 +89,56 @@ export const getSessionQR = async (req: Request, res: Response) => {
             // Fallback to sending just the raw string if image gen fails
             res.json(result);
         }
-    } catch (error: any) {
-        res.status(500).json({ status: 'error', message: error.message });
+    },
+);
+
+export const sendText = asyncHandler(async (req: Request, res: Response) => {
+    const { sessionId } = req.params;
+    const { to, message } = req.body;
+
+    // Check if session is connected
+    const sessionStatus = await whatsAppService.getSessionStatus(sessionId);
+    if (!sessionStatus || sessionStatus.status !== 'CONNECTED') {
+        throw new AppError('Session not active', 404, 'SESSION_NOT_ACTIVE');
     }
-};
 
-export const sendText = async (req: Request, res: Response) => {
-    try {
-        const { sessionId } = req.params;
-        const { to, message } = req.body;
-        if (!to || !message) {
-            return res.status(400).json({
-                status: 'error',
-                message: 'Missing parameters: to, message',
-            });
-        }
+    const job = await messageQueue.add('text', {
+        sessionId,
+        to,
+        message,
+    });
 
-        const sessionStatus = await whatsAppService.getSessionStatus(sessionId);
-        if (!sessionStatus || sessionStatus.status !== 'CONNECTED') {
-            return res.status(404).json({
-                status: 'error',
-                message: 'Session not active',
-            });
-        }
+    res.json({ status: 'queued', jobId: job.id });
+});
 
-        const job = await messageQueue.add('text', {
-            sessionId,
-            to,
-            message,
-        });
+export const sendMedia = asyncHandler(async (req: Request, res: Response) => {
+    const { sessionId } = req.params;
+    const { to, type, mediaUrl, caption } = req.body;
 
-        res.json({ status: 'queued', jobId: job.id });
-    } catch (error: any) {
-        res.status(500).json({ status: 'error', message: error.message });
+    const sessionStatus = await whatsAppService.getSessionStatus(sessionId);
+    if (!sessionStatus || sessionStatus.status !== 'CONNECTED') {
+        throw new AppError('Session not active', 404, 'SESSION_NOT_ACTIVE');
     }
-};
 
-export const sendMedia = async (req: Request, res: Response) => {
-    try {
-        const { sessionId } = req.params;
-        const { to, type, mediaUrl, caption } = req.body;
-        if (!to || !type || !mediaUrl) {
-            return res.status(400).json({
-                status: 'error',
-                message: 'Missing parameters: to, type, mediaUrl',
-            });
-        }
+    const job = await messageQueue.add('media', {
+        sessionId,
+        to,
+        type,
+        mediaUrl,
+        caption,
+    });
 
-        const sessionStatus = await whatsAppService.getSessionStatus(sessionId);
-        if (!sessionStatus || sessionStatus.status !== 'CONNECTED') {
-            return res.status(404).json({
-                status: 'error',
-                message: 'Session not active',
-            });
-        }
+    res.json({ status: 'queued', jobId: job.id });
+});
 
-        const job = await messageQueue.add('media', {
-            sessionId,
-            to,
-            type,
-            mediaUrl,
-            caption,
-        });
-
-        res.json({ status: 'queued', jobId: job.id });
-    } catch (error: any) {
-        res.status(500).json({ status: 'error', message: error.message });
-    }
-};
-
-export const sendTemplate = async (req: Request, res: Response) => {
-    try {
+export const sendTemplate = asyncHandler(
+    async (req: Request, res: Response) => {
         const { sessionId } = req.params;
         const { to, templateName, variables } = req.body;
-        if (!to || !templateName) {
-            return res.status(400).json({
-                status: 'error',
-                message: 'Missing parameters: to, templateName',
-            });
-        }
 
         const sessionStatus = await whatsAppService.getSessionStatus(sessionId);
         if (!sessionStatus || sessionStatus.status !== 'CONNECTED') {
-            return res.status(404).json({
-                status: 'error',
-                message: 'Session not active',
-            });
+            throw new AppError('Session not active', 404, 'SESSION_NOT_ACTIVE');
         }
 
         const job = await messageQueue.add('template', {
@@ -180,52 +149,64 @@ export const sendTemplate = async (req: Request, res: Response) => {
         });
 
         res.json({ status: 'queued', jobId: job.id });
-    } catch (error: any) {
-        res.status(500).json({ status: 'error', message: error.message });
+    },
+);
+
+export const sendFile = asyncHandler(async (req: Request, res: Response) => {
+    const { sessionId } = req.params;
+    const { to } = req.body;
+    // multer parses 'captions' field.
+    let { captions } = req.body;
+    const files = req.files as Express.Multer.File[];
+
+    // Ensure cleanup helper
+    const cleanupFiles = () => {
+        if (files) {
+            files.forEach((file) => fs.unlink(file.path, () => {}));
+        }
+    };
+
+    if (!to || !files || files.length === 0) {
+        cleanupFiles();
+        throw new ValidationError('Missing parameters: to, files');
     }
-};
 
-export const sendFile = async (req: Request, res: Response) => {
+    const sessionStatus = await whatsAppService.getSessionStatus(sessionId);
+    if (!sessionStatus || sessionStatus.status !== 'CONNECTED') {
+        cleanupFiles();
+        throw new AppError('Session not active', 404, 'SESSION_NOT_ACTIVE');
+    }
+
+    // Normalize captions to array to match files index
+    let captionsArray: string[] = [];
+    if (Array.isArray(captions)) {
+        captionsArray = captions as string[];
+    } else if (captions) {
+        captionsArray = [captions as string];
+    }
+
+    const jobs = [];
     try {
-        const { sessionId } = req.params;
-        const { to } = req.body;
-        // multer parses 'captions' field. If multiple, it's an array. If one, it's a string. If none, undefined/null.
-        let { captions } = req.body;
-        const files = req.files as Express.Multer.File[];
-
-        if (!to || !files || files.length === 0) {
-            return res.status(400).json({
-                status: 'error',
-                message: 'Missing parameters: to, files',
-            });
-        }
-
-        const sessionStatus = await whatsAppService.getSessionStatus(sessionId);
-        if (!sessionStatus || sessionStatus.status !== 'CONNECTED') {
-            // Cleanup uploaded files since we are rejecting
-            if (req.files) {
-                (req.files as Express.Multer.File[]).forEach((file) => {
-                    fs.unlink(file.path, () => {});
-                });
+        // First pass: Validation
+        for (const file of files) {
+            // Task 1.3.3: MIME type validation
+            const isValidSignature = await validateFileSignature(
+                file.path,
+                file.mimetype,
+            );
+            if (!isValidSignature) {
+                // Fail the whole batch before queueing anything
+                cleanupFiles();
+                throw new ValidationError(
+                    `Security validation failed for file: ${file.originalname}. Content does not match extension/type.`,
+                );
             }
-            return res.status(404).json({
-                status: 'error',
-                message: 'Session not active',
-            });
         }
 
-        // Normalize captions to array to match files index
-        let captionsArray: string[] = [];
-        if (Array.isArray(captions)) {
-            captionsArray = captions as string[];
-        } else if (captions) {
-            captionsArray = [captions as string];
-        }
-
-        const jobs = [];
+        // Second pass: Queueing
         for (let i = 0; i < files.length; i++) {
             const file = files[i];
-            const fileCaption = captionsArray[i] || ''; // Map caption to file by index
+            const fileCaption = captionsArray[i] || '';
 
             const job = await messageQueue.add('file', {
                 sessionId,
@@ -240,27 +221,23 @@ export const sendFile = async (req: Request, res: Response) => {
                 status: 'queued',
                 jobId: job.id,
             });
-            // Note: We do NOT delete the file here. The worker handles cleanup after processing.
         }
-
-        res.json({ status: 'success', jobs });
-    } catch (error: any) {
-        // Only cleanup on API error (e.g. valid failure before queueing)
-        if (req.files) {
-            (req.files as Express.Multer.File[]).forEach((file) => {
-                fs.unlink(file.path, () => {});
-            });
-        }
-        res.status(500).json({ status: 'error', message: error.message });
+    } catch (error) {
+        // Catch errors during loop (e.g. queue add fail)
+        // If we threw ValidationError above, it goes here.
+        // We already cleaned up in the loop for validation error?
+        // No, we called cleanupFiles() then threw.
+        // Re-throw to let global handler catch it.
+        throw error;
     }
-};
 
-export const getMessageLog = (req: Request, res: Response) => {
-    try {
+    res.json({ status: 'success', jobs });
+});
+
+export const getMessageLog = asyncHandler(
+    async (req: Request, res: Response) => {
         const { sessionId } = req.params;
-        const log = whatsAppService.getMessageLog(sessionId || null);
+        const log = await whatsAppService.getMessageLog(sessionId || null);
         res.json({ status: 'success', messages: log });
-    } catch (error: any) {
-        res.status(500).json({ status: 'error', message: error.message });
-    }
-};
+    },
+);

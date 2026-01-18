@@ -1,15 +1,28 @@
-import Joi, { Schema } from 'joi';
+import Joi, { Schema, CustomHelpers } from 'joi';
 import { Request, Response, NextFunction } from 'express';
+import { validateWebhookUrl } from '../utils/urlValidator.js';
 
-const validate = (schema: Schema) => (req: Request, res: Response, next: NextFunction) => {
-    const { error } = schema.validate(req.body);
-    if (error) {
+// Async validation helper for Joi
+const urlValidator = async (value: string, helpers: CustomHelpers) => {
+    if (!value) return value; // Allow empty if allowed by Joi
+    const isValid = await validateWebhookUrl(value);
+    if (!isValid) {
+        return helpers.error('any.invalid');
+    }
+    return value;
+};
+
+const validate = (schema: Schema) => async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const value = await schema.validateAsync(req.body);
+        req.body = value; // Update body with sanitized/validated values
+        next();
+    } catch (error: any) {
         return res.status(400).json({
             status: 'error',
             message: error.details[0].message,
         });
     }
-    next();
 };
 
 const schemas = {
@@ -18,7 +31,7 @@ const schemas = {
             .pattern(/^[a-zA-Z0-9-_]+$/)
             .min(3)
             .required(),
-        webhookUrl: Joi.string().uri().allow(null, ''),
+        webhookUrl: Joi.string().uri().external(urlValidator).allow(null, ''),
     }),
     sendText: Joi.object({
         to: Joi.string()
