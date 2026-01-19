@@ -84,6 +84,16 @@ app.use('/api/v1', apiKeyAuth); // Apply auth middleware to all /api/v1 routes
 app.use('/api/v1/sessions', sessionRoutes);
 app.use('/api/v1/templates', templateRoutes);
 
+// Serve Frontend (React) - SPA Fallback
+// This must be after all other routes
+const frontendPath = path.join(process.cwd(), 'frontend', 'dist');
+if (fs.existsSync(frontendPath)) {
+    app.use(express.static(frontendPath));
+    app.get(/.*/, (req, res) => {
+        res.sendFile(path.join(frontendPath, 'index.html'));
+    });
+}
+
 // Global Error Handler
 app.use(errorHandler);
 
