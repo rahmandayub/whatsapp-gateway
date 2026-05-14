@@ -75,8 +75,6 @@ async function main() {
         existing.WEBHOOK_SIGNING_SECRET || generateSecret(32);
     const keyEncryptionSecret =
         existing.KEY_ENCRYPTION_SECRET || generateSecret(32);
-    const masterApiKeyHash =
-        existing.MASTER_API_KEY_HASH || bcrypt.hashSync(generateSecret(32), 12);
 
     // Deployment
     const port = await ask('Server port', existing.PORT || '3000');
@@ -126,7 +124,6 @@ async function main() {
         { key: 'ADMIN_USERNAME', value: adminUsername },
         { key: 'ADMIN_PASSWORD_HASH', value: adminPasswordHash },
         { key: 'JWT_SECRET', value: jwtSecret },
-        { key: 'MASTER_API_KEY_HASH', value: masterApiKeyHash },
         { blankLine: true, key: '', value: '' },
         {
             comment: 'API key encryption (64 hex chars = 32 bytes)',

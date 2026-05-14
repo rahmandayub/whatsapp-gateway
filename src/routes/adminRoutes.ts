@@ -20,6 +20,13 @@ router.use(adminAuth);
 router.post('/logout', adminController.adminLogout);
 router.get('/me', adminController.adminMe);
 
+// Admin Tokens management
+router.get('/tokens', adminController.listAdminTokens);
+router.post('/tokens', adminController.createAdminToken);
+router.post('/tokens/:id/regenerate', adminController.regenerateAdminToken);
+router.post('/tokens/:id/revoke', adminController.revokeAdminToken);
+router.delete('/tokens/:id', adminController.deleteAdminToken);
+
 // API Keys management
 router.get('/api-keys', adminController.listApiKeys);
 router.post('/api-keys', adminController.createApiKey);

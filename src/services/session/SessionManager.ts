@@ -58,7 +58,65 @@ export class SessionManager {
         apiKeyId: string,
         name: string,
         webhookUrl?: string | null,
+        isAdmin?: boolean,
     ) {
+        // Check if the provided name is actually a UUID (existing session ID)
+        const uuidRegex =
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (uuidRegex.test(name)) {
+            // Try to find by ID + API key first
+            const existingById = await this.sessionRepo.findByIdAndApiKey(
+                name,
+                apiKeyId,
+            );
+            if (existingById) {
+                if (this.sessionStore.has(existingById.id)) {
+                    return {
+                        status: 'already_active',
+                        message: 'Session already active',
+                        sessionId: existingById.id,
+                    };
+                }
+                // If exists but not active, update webhook and restart
+                if (webhookUrl !== undefined) {
+                    await this.sessionRepo.updateWebhookUrl(
+                        existingById.id,
+                        webhookUrl,
+                    );
+                }
+                return await this.startSessionInternal(
+                    existingById.id,
+                    existingById,
+                );
+            }
+
+            // For admin: try finding by ID only (admin can resume any session)
+            if (isAdmin) {
+                const existingByIdOnly = await this.sessionRepo.findById(name);
+                if (existingByIdOnly) {
+                    if (this.sessionStore.has(existingByIdOnly.id)) {
+                        return {
+                            status: 'already_active',
+                            message: 'Session already active',
+                            sessionId: existingByIdOnly.id,
+                        };
+                    }
+                    // If exists but not active, update webhook and restart
+                    if (webhookUrl !== undefined) {
+                        await this.sessionRepo.updateWebhookUrl(
+                            existingByIdOnly.id,
+                            webhookUrl,
+                        );
+                    }
+                    return await this.startSessionInternal(
+                        existingByIdOnly.id,
+                        existingByIdOnly,
+                    );
+                }
+            }
+        }
+
+        // Check by name
         const existing = await this.sessionRepo.findByNameAndApiKey(
             name,
             apiKeyId,

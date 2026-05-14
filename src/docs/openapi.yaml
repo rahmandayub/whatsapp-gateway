@@ -1,75 +1,1261 @@
 openapi: 3.0.0
 info:
-  title: WhatsApp Gateway API
-  description: A scalable WhatsApp Gateway API built with Node.js and Baileys.
-  version: 1.0.0
+    title: WhatsApp Gateway API
+    description: |
+        A scalable WhatsApp Gateway built with Node.js and Baileys.
+        Supports user API keys, admin cookie auth, and admin Bearer tokens.
+    version: 1.1.0
 servers:
-  - url: http://localhost:3000/api/v1
-    description: Local Development Server
+    - url: http://localhost:3000/api/v1
+      description: Local Development Server
+
 components:
-  securitySchemes:
-    ApiKeyAuth:
-      type: apiKey
-      in: header
-      name: x-api-key
-security:
-  - ApiKeyAuth: []
-paths:
-  /sessions:
-    get:
-      summary: List all sessions
-      responses:
-        '200':
-          description: List of sessions
-  /sessions/start:
-    post:
-      summary: Start a new session
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                sessionId:
-                  type: string
-                webhookUrl:
-                  type: string
-      responses:
-        '200':
-          description: Session started
-  /sessions/{sessionId}/status:
-    get:
-      summary: Get session status
-      parameters:
-        - in: path
-          name: sessionId
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Session status
-  /sessions/{sessionId}/message/send/text:
-    post:
-      summary: Send text message
-      parameters:
-        - in: path
-          name: sessionId
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                to:
-                  type: string
+    securitySchemes:
+        ApiKeyAuth:
+            type: apiKey
+            in: header
+            name: x-api-key
+            description: User API key for scoped access to sessions and templates.
+        AdminBearerAuth:
+            type: http
+            scheme: bearer
+            description: |
+                Admin Bearer token for programmatic server-to-server access.
+                Prefix `wak_adm_...`. Managed via `/admin/tokens`.
+        AdminCookieAuth:
+            type: apiKey
+            in: cookie
+            name: admin_token
+            description: Admin JWT cookie obtained from `POST /admin/login`.
+
+    schemas:
+        ErrorResponse:
+            type: object
+            properties:
+                status:
+                    type: string
+                    example: error
                 message:
-                  type: string
-      responses:
-        '200':
-          description: Message queued
+                    type: string
+                code:
+                    type: string
+                    example: VALIDATION_ERROR
+
+        QueuedJobResponse:
+            type: object
+            properties:
+                status:
+                    type: string
+                    example: queued
+                jobId:
+                    type: string
+
+        Session:
+            type: object
+            properties:
+                id:
+                    type: string
+                    format: uuid
+                name:
+                    type: string
+                status:
+                    type: string
+                    enum: [CONNECTED, DISCONNECTED, SCANNING_QR, STOPPED]
+                webhookUrl:
+                    type: string
+                whatsappId:
+                    type: string
+                created_at:
+                    type: string
+                    format: date-time
+
+        ApiKey:
+            type: object
+            properties:
+                id:
+                    type: string
+                    format: uuid
+                name:
+                    type: string
+                prefix:
+                    type: string
+                key:
+                    type: string
+                    description: Shown only once on creation/regeneration.
+                created_at:
+                    type: string
+                    format: date-time
+                last_used_at:
+                    type: string
+                    format: date-time
+                revoked_at:
+                    type: string
+                    format: date-time
+                created_by:
+                    type: string
+
+        AdminToken:
+            type: object
+            properties:
+                id:
+                    type: string
+                    format: uuid
+                name:
+                    type: string
+                prefix:
+                    type: string
+                token:
+                    type: string
+                    description: Shown only once on creation/regeneration.
+                created_at:
+                    type: string
+                    format: date-time
+                last_used_at:
+                    type: string
+                    format: date-time
+                revoked_at:
+                    type: string
+                    format: date-time
+                expires_at:
+                    type: string
+                    format: date-time
+                created_by:
+                    type: string
+
+        Template:
+            type: object
+            properties:
+                id:
+                    type: integer
+                name:
+                    type: string
+                content:
+                    type: string
+                language:
+                    type: string
+                category:
+                    type: string
+                created_at:
+                    type: string
+                    format: date-time
+                updated_at:
+                    type: string
+                    format: date-time
+
+        AuditLog:
+            type: object
+            properties:
+                id:
+                    type: integer
+                actor_type:
+                    type: string
+                actor_id:
+                    type: string
+                action:
+                    type: string
+                target_type:
+                    type: string
+                target_id:
+                    type: string
+                ip:
+                    type: string
+                request_id:
+                    type: string
+                metadata:
+                    type: object
+                created_at:
+                    type: string
+                    format: date-time
+
+        MessageLog:
+            type: object
+            properties:
+                id:
+                    type: string
+                timestamp:
+                    type: string
+                    format: date-time
+                direction:
+                    type: string
+                    enum: [incoming, outgoing]
+                from:
+                    type: string
+                to:
+                    type: string
+                sessionId:
+                    type: string
+                text:
+                    type: string
+                type:
+                    type: string
+
+        WebhookEvent:
+            type: object
+            properties:
+                event:
+                    type: string
+                    enum:
+                        [
+                            qr_code,
+                            connection_update,
+                            message_received,
+                            message_status_update,
+                        ]
+                sessionId:
+                    type: string
+                timestamp:
+                    type: integer
+
+paths:
+    /sessions:
+        get:
+            tags: [Sessions]
+            summary: List sessions
+            description: |
+                API key: returns only sessions owned by that key.
+                Admin: returns all sessions.
+            security:
+                - ApiKeyAuth: []
+                - AdminBearerAuth: []
+                - AdminCookieAuth: []
+            responses:
+                '200':
+                    description: List of sessions
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    sessions:
+                                        type: array
+                                        items:
+                                            $ref: '#/components/schemas/Session'
+                '401':
+                    description: Unauthorized
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ErrorResponse'
+
+    /sessions/start:
+        post:
+            tags: [Sessions]
+            summary: Start a new session
+            security:
+                - ApiKeyAuth: []
+                - AdminBearerAuth: []
+                - AdminCookieAuth: []
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            properties:
+                                name:
+                                    type: string
+                                    description: Friendly session name (preferred)
+                                sessionId:
+                                    type: string
+                                    description: Legacy alias for name
+                                webhookUrl:
+                                    type: string
+                                    format: uri
+                                    description: Optional HTTPS webhook URL
+                                apiKeyId:
+                                    type: string
+                                    format: uuid
+                                    description: Admin only; assign session to a specific API key
+                            anyOf:
+                                - required: [name]
+                                - required: [sessionId]
+            responses:
+                '200':
+                    description: Session initiation started
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                        example: pending
+                                    message:
+                                        type: string
+                                    sessionId:
+                                        type: string
+                                        format: uuid
+                '400':
+                    description: Validation error
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ErrorResponse'
+
+    /sessions/{sessionId}/status:
+        get:
+            tags: [Sessions]
+            summary: Get session status
+            security:
+                - ApiKeyAuth: []
+                - AdminBearerAuth: []
+                - AdminCookieAuth: []
+            parameters:
+                - in: path
+                  name: sessionId
+                  required: true
+                  schema:
+                      type: string
+                      format: uuid
+            responses:
+                '200':
+                    description: Session status
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    sessionId:
+                                        type: string
+                                    status:
+                                        type: string
+                                    whatsappId:
+                                        type: string
+                '404':
+                    description: Session not found
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ErrorResponse'
+
+    /sessions/{sessionId}/qr:
+        get:
+            tags: [Sessions]
+            summary: Get session QR code
+            security:
+                - ApiKeyAuth: []
+                - AdminBearerAuth: []
+                - AdminCookieAuth: []
+            parameters:
+                - in: path
+                  name: sessionId
+                  required: true
+                  schema:
+                      type: string
+                      format: uuid
+            responses:
+                '200':
+                    description: QR code data
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    sessionId:
+                                        type: string
+                                    status:
+                                        type: string
+                                    qrImage:
+                                        type: string
+                                        description: Base64 PNG data URI
+                '404':
+                    description: QR not available or session not found
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ErrorResponse'
+
+    /sessions/{sessionId}/stop:
+        post:
+            tags: [Sessions]
+            summary: Stop session (pause)
+            security:
+                - ApiKeyAuth: []
+                - AdminBearerAuth: []
+                - AdminCookieAuth: []
+            parameters:
+                - in: path
+                  name: sessionId
+                  required: true
+                  schema:
+                      type: string
+                      format: uuid
+            responses:
+                '200':
+                    description: Session stopped
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                    message:
+                                        type: string
+
+    /sessions/{sessionId}/logout:
+        post:
+            tags: [Sessions]
+            summary: Logout session (hard delete)
+            security:
+                - ApiKeyAuth: []
+                - AdminBearerAuth: []
+                - AdminCookieAuth: []
+            parameters:
+                - in: path
+                  name: sessionId
+                  required: true
+                  schema:
+                      type: string
+                      format: uuid
+            responses:
+                '200':
+                    description: Session logged out
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                    message:
+                                        type: string
+
+    /sessions/{sessionId}/messages/log:
+        get:
+            tags: [Sessions]
+            summary: Get session message log
+            security:
+                - ApiKeyAuth: []
+                - AdminBearerAuth: []
+                - AdminCookieAuth: []
+            parameters:
+                - in: path
+                  name: sessionId
+                  required: true
+                  schema:
+                      type: string
+                      format: uuid
+            responses:
+                '200':
+                    description: Message log
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                    messages:
+                                        type: array
+                                        items:
+                                            type: object
+
+    /sessions/{sessionId}/message/send/text:
+        post:
+            tags: [Messaging]
+            summary: Send text message
+            security:
+                - ApiKeyAuth: []
+                - AdminBearerAuth: []
+                - AdminCookieAuth: []
+            parameters:
+                - in: path
+                  name: sessionId
+                  required: true
+                  schema:
+                      type: string
+                      format: uuid
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            properties:
+                                to:
+                                    type: string
+                                    pattern: '^[0-9]+@s\.whatsapp\.net$'
+                                    example: '628123456789@s.whatsapp.net'
+                                message:
+                                    type: string
+                                    maxLength: 4096
+                            required: [to, message]
+            responses:
+                '200':
+                    description: Message queued
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/QueuedJobResponse'
+                '404':
+                    description: Session not active
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ErrorResponse'
+
+    /sessions/{sessionId}/message/send/media:
+        post:
+            tags: [Messaging]
+            summary: Send media message
+            security:
+                - ApiKeyAuth: []
+                - AdminBearerAuth: []
+                - AdminCookieAuth: []
+            parameters:
+                - in: path
+                  name: sessionId
+                  required: true
+                  schema:
+                      type: string
+                      format: uuid
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            properties:
+                                to:
+                                    type: string
+                                    pattern: '^[0-9]+@s\.whatsapp\.net$'
+                                type:
+                                    type: string
+                                    enum: [image, video, document]
+                                mediaUrl:
+                                    type: string
+                                    format: uri
+                                    maxLength: 2048
+                                caption:
+                                    type: string
+                                    maxLength: 1024
+                            required: [to, type, mediaUrl]
+            responses:
+                '200':
+                    description: Message queued
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/QueuedJobResponse'
+
+    /sessions/{sessionId}/message/send/file:
+        post:
+            tags: [Messaging]
+            summary: Send file message (multipart)
+            security:
+                - ApiKeyAuth: []
+                - AdminBearerAuth: []
+                - AdminCookieAuth: []
+            parameters:
+                - in: path
+                  name: sessionId
+                  required: true
+                  schema:
+                      type: string
+                      format: uuid
+            requestBody:
+                required: true
+                content:
+                    multipart/form-data:
+                        schema:
+                            type: object
+                            properties:
+                                to:
+                                    type: string
+                                    pattern: '^[0-9]+@s\.whatsapp\.net$'
+                                files:
+                                    type: array
+                                    items:
+                                        type: string
+                                        format: binary
+                                    maxItems: 10
+                                captions:
+                                    type: array
+                                    items:
+                                        type: string
+                                        maxLength: 1024
+                            required: [to, files]
+            responses:
+                '200':
+                    description: Files queued
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                    jobs:
+                                        type: array
+                                        items:
+                                            type: object
+                                            properties:
+                                                file:
+                                                    type: string
+                                                status:
+                                                    type: string
+                                                jobId:
+                                                    type: string
+
+    /sessions/{sessionId}/message/send/template:
+        post:
+            tags: [Messaging]
+            summary: Send template message
+            security:
+                - ApiKeyAuth: []
+                - AdminBearerAuth: []
+                - AdminCookieAuth: []
+            parameters:
+                - in: path
+                  name: sessionId
+                  required: true
+                  schema:
+                      type: string
+                      format: uuid
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            properties:
+                                to:
+                                    type: string
+                                    pattern: '^[0-9]+@s\.whatsapp\.net$'
+                                templateName:
+                                    type: string
+                                    pattern: '^[a-zA-Z0-9_-]+$'
+                                    maxLength: 64
+                                variables:
+                                    type: object
+                                    additionalProperties:
+                                        type: string
+                                        maxLength: 1024
+                            required: [to, templateName]
+            responses:
+                '200':
+                    description: Message queued
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/QueuedJobResponse'
+
+    /templates:
+        get:
+            tags: [Templates]
+            summary: List templates
+            security:
+                - ApiKeyAuth: []
+                - AdminBearerAuth: []
+                - AdminCookieAuth: []
+            responses:
+                '200':
+                    description: Templates list
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                    templates:
+                                        type: array
+                                        items:
+                                            $ref: '#/components/schemas/Template'
+        post:
+            tags: [Templates]
+            summary: Create template
+            security:
+                - ApiKeyAuth: []
+                - AdminBearerAuth: []
+                - AdminCookieAuth: []
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            properties:
+                                name:
+                                    type: string
+                                    pattern: '^[a-zA-Z0-9_-]+$'
+                                    minLength: 3
+                                    maxLength: 64
+                                content:
+                                    type: string
+                                    maxLength: 4096
+                                language:
+                                    type: string
+                                    minLength: 2
+                                    maxLength: 2
+                                    default: en
+                                category:
+                                    type: string
+                            required: [name, content]
+            responses:
+                '200':
+                    description: Template created
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                    template:
+                                        $ref: '#/components/schemas/Template'
+
+    /templates/{name}:
+        get:
+            tags: [Templates]
+            summary: Get a template
+            security:
+                - ApiKeyAuth: []
+                - AdminBearerAuth: []
+                - AdminCookieAuth: []
+            parameters:
+                - in: path
+                  name: name
+                  required: true
+                  schema:
+                      type: string
+                      pattern: '^[a-zA-Z0-9_-]+$'
+            responses:
+                '200':
+                    description: Template
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                    template:
+                                        $ref: '#/components/schemas/Template'
+        put:
+            tags: [Templates]
+            summary: Update a template
+            security:
+                - ApiKeyAuth: []
+                - AdminBearerAuth: []
+                - AdminCookieAuth: []
+            parameters:
+                - in: path
+                  name: name
+                  required: true
+                  schema:
+                      type: string
+                      pattern: '^[a-zA-Z0-9_-]+$'
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            properties:
+                                content:
+                                    type: string
+                                    maxLength: 4096
+                                language:
+                                    type: string
+                                    minLength: 2
+                                    maxLength: 2
+                                category:
+                                    type: string
+            responses:
+                '200':
+                    description: Template updated
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                    template:
+                                        $ref: '#/components/schemas/Template'
+        delete:
+            tags: [Templates]
+            summary: Delete a template
+            security:
+                - ApiKeyAuth: []
+                - AdminBearerAuth: []
+                - AdminCookieAuth: []
+            parameters:
+                - in: path
+                  name: name
+                  required: true
+                  schema:
+                      type: string
+                      pattern: '^[a-zA-Z0-9_-]+$'
+            responses:
+                '200':
+                    description: Template deleted
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                    message:
+                                        type: string
+
+    /admin/login:
+        post:
+            tags: [Admin / Auth]
+            summary: Admin login
+            security: []
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            properties:
+                                username:
+                                    type: string
+                                password:
+                                    type: string
+                            required: [username, password]
+            responses:
+                '200':
+                    description: Login successful (sets admin_token cookie)
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                    message:
+                                        type: string
+                '401':
+                    description: Invalid credentials
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ErrorResponse'
+
+    /admin/logout:
+        post:
+            tags: [Admin / Auth]
+            summary: Admin logout
+            security:
+                - AdminBearerAuth: []
+                - AdminCookieAuth: []
+            responses:
+                '200':
+                    description: Logged out
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                    message:
+                                        type: string
+
+    /admin/me:
+        get:
+            tags: [Admin / Auth]
+            summary: Get current admin info
+            security:
+                - AdminBearerAuth: []
+                - AdminCookieAuth: []
+            responses:
+                '200':
+                    description: Admin info
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                    admin:
+                                        type: object
+                                        properties:
+                                            username:
+                                                type: string
+
+    /admin/tokens:
+        get:
+            tags: [Admin / Tokens]
+            summary: List admin tokens
+            security:
+                - AdminBearerAuth: []
+                - AdminCookieAuth: []
+            responses:
+                '200':
+                    description: Admin tokens list
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                    adminTokens:
+                                        type: array
+                                        items:
+                                            $ref: '#/components/schemas/AdminToken'
+        post:
+            tags: [Admin / Tokens]
+            summary: Create admin token
+            security:
+                - AdminBearerAuth: []
+                - AdminCookieAuth: []
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            properties:
+                                name:
+                                    type: string
+                                expiresAt:
+                                    type: string
+                                    format: date-time
+                                    description: Optional expiry date (ISO 8601)
+                            required: [name]
+            responses:
+                '200':
+                    description: Token created
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                    adminToken:
+                                        $ref: '#/components/schemas/AdminToken'
+
+    /admin/tokens/{id}/regenerate:
+        post:
+            tags: [Admin / Tokens]
+            summary: Regenerate admin token
+            security:
+                - AdminBearerAuth: []
+                - AdminCookieAuth: []
+            parameters:
+                - in: path
+                  name: id
+                  required: true
+                  schema:
+                      type: string
+                      format: uuid
+            responses:
+                '200':
+                    description: Token regenerated
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                    adminToken:
+                                        $ref: '#/components/schemas/AdminToken'
+
+    /admin/tokens/{id}/revoke:
+        post:
+            tags: [Admin / Tokens]
+            summary: Revoke admin token
+            security:
+                - AdminBearerAuth: []
+                - AdminCookieAuth: []
+            parameters:
+                - in: path
+                  name: id
+                  required: true
+                  schema:
+                      type: string
+                      format: uuid
+            responses:
+                '200':
+                    description: Token revoked
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                    message:
+                                        type: string
+                '400':
+                    description: Cannot revoke currently used token
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ErrorResponse'
+
+    /admin/tokens/{id}:
+        delete:
+            tags: [Admin / Tokens]
+            summary: Delete admin token
+            security:
+                - AdminBearerAuth: []
+                - AdminCookieAuth: []
+            parameters:
+                - in: path
+                  name: id
+                  required: true
+                  schema:
+                      type: string
+                      format: uuid
+            responses:
+                '200':
+                    description: Token deleted
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                    message:
+                                        type: string
+                '400':
+                    description: Cannot delete currently used token
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ErrorResponse'
+
+    /admin/api-keys:
+        get:
+            tags: [Admin / API Keys]
+            summary: List API keys
+            security:
+                - AdminBearerAuth: []
+                - AdminCookieAuth: []
+            responses:
+                '200':
+                    description: API keys list
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                    apiKeys:
+                                        type: array
+                                        items:
+                                            $ref: '#/components/schemas/ApiKey'
+        post:
+            tags: [Admin / API Keys]
+            summary: Create API key
+            security:
+                - AdminBearerAuth: []
+                - AdminCookieAuth: []
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            type: object
+                            properties:
+                                name:
+                                    type: string
+                            required: [name]
+            responses:
+                '200':
+                    description: API key created
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                    apiKey:
+                                        $ref: '#/components/schemas/ApiKey'
+
+    /admin/api-keys/{id}/regenerate:
+        post:
+            tags: [Admin / API Keys]
+            summary: Regenerate API key
+            security:
+                - AdminBearerAuth: []
+                - AdminCookieAuth: []
+            parameters:
+                - in: path
+                  name: id
+                  required: true
+                  schema:
+                      type: string
+                      format: uuid
+            responses:
+                '200':
+                    description: API key regenerated
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                    apiKey:
+                                        $ref: '#/components/schemas/ApiKey'
+
+    /admin/api-keys/{id}/revoke:
+        post:
+            tags: [Admin / API Keys]
+            summary: Revoke API key
+            security:
+                - AdminBearerAuth: []
+                - AdminCookieAuth: []
+            parameters:
+                - in: path
+                  name: id
+                  required: true
+                  schema:
+                      type: string
+                      format: uuid
+            responses:
+                '200':
+                    description: API key revoked
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                    message:
+                                        type: string
+
+    /admin/api-keys/{id}:
+        delete:
+            tags: [Admin / API Keys]
+            summary: Delete API key
+            security:
+                - AdminBearerAuth: []
+                - AdminCookieAuth: []
+            parameters:
+                - in: path
+                  name: id
+                  required: true
+                  schema:
+                      type: string
+                      format: uuid
+            responses:
+                '200':
+                    description: API key deleted
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                    message:
+                                        type: string
+
+    /admin/api-keys/{id}/sessions:
+        get:
+            tags: [Admin / API Keys]
+            summary: Get sessions for an API key
+            security:
+                - AdminBearerAuth: []
+                - AdminCookieAuth: []
+            parameters:
+                - in: path
+                  name: id
+                  required: true
+                  schema:
+                      type: string
+                      format: uuid
+            responses:
+                '200':
+                    description: Sessions list
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                    sessions:
+                                        type: array
+                                        items:
+                                            $ref: '#/components/schemas/Session'
+
+    /admin/audit-logs:
+        get:
+            tags: [Admin / Logs]
+            summary: List audit logs
+            security:
+                - AdminBearerAuth: []
+                - AdminCookieAuth: []
+            parameters:
+                - in: query
+                  name: limit
+                  schema:
+                      type: integer
+                      minimum: 1
+                      maximum: 500
+                      default: 100
+                - in: query
+                  name: offset
+                  schema:
+                      type: integer
+                      minimum: 0
+                      default: 0
+            responses:
+                '200':
+                    description: Audit logs
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                    logs:
+                                        type: array
+                                        items:
+                                            $ref: '#/components/schemas/AuditLog'
+
+    /admin/message-logs:
+        get:
+            tags: [Admin / Logs]
+            summary: List message logs
+            security:
+                - AdminBearerAuth: []
+                - AdminCookieAuth: []
+            parameters:
+                - in: query
+                  name: limit
+                  schema:
+                      type: integer
+                      minimum: 1
+                      maximum: 500
+                      default: 100
+                - in: query
+                  name: offset
+                  schema:
+                      type: integer
+                      minimum: 0
+                      default: 0
+            responses:
+                '200':
+                    description: Message logs
+                    content:
+                        application/json:
+                            schema:
+                                type: object
+                                properties:
+                                    status:
+                                        type: string
+                                    logs:
+                                        type: array
+                                        items:
+                                            $ref: '#/components/schemas/MessageLog'

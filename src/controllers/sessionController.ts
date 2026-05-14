@@ -78,6 +78,7 @@ export const startSession = asyncHandler(
             apiKeyId,
             sessionName,
             webhookUrl,
+            req.admin,
         );
 
         const { actorType, actorId } = getActorInfo(req);

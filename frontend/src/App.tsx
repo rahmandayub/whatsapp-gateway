@@ -19,6 +19,11 @@ const TemplatesPage = lazy(() =>
 const ApiKeysPage = lazy(() =>
     import('./pages/ApiKeysPage').then((m) => ({ default: m.ApiKeysPage })),
 );
+const AdminTokensPage = lazy(() =>
+    import('./pages/AdminTokensPage').then((m) => ({
+        default: m.AdminTokensPage,
+    })),
+);
 
 function App() {
     const { isAuthenticated, isLoading } = useAuth();
@@ -54,6 +59,7 @@ function App() {
                     <Route path="/messages" element={<MessagesPage />} />
                     <Route path="/templates" element={<TemplatesPage />} />
                     <Route path="/keys" element={<ApiKeysPage />} />
+                    <Route path="/admin-tokens" element={<AdminTokensPage />} />
                 </Route>
             </Routes>
         </Suspense>

@@ -18,11 +18,13 @@ class WhatsAppServiceBridge {
         apiKeyId: string,
         name: string,
         webhookUrl?: string | null,
+        isAdmin?: boolean,
     ) {
         return await this.sessionManager.startSession(
             apiKeyId,
             name,
             webhookUrl,
+            isAdmin,
         );
     }
 

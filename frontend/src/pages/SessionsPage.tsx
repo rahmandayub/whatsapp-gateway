@@ -207,6 +207,7 @@ export function SessionsPage() {
 
     const [showCreate, setShowCreate] = useState(false);
     const [qrSessionId, setQrSessionId] = useState<string | null>(null);
+    const [confirmStop, setConfirmStop] = useState<string | null>(null);
     const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
     const handleResume = async (sessionId: string) => {
@@ -216,19 +217,16 @@ export function SessionsPage() {
 
     const handleStop = async (sessionId: string) => {
         await stopSession(sessionId);
+        setConfirmStop(null);
         await fetchSessions();
+        toast.success('Session stopped');
     };
 
     const handleDelete = async (sessionId: string) => {
-        if (confirmDelete === sessionId) {
-            await deleteSession(sessionId);
-            setConfirmDelete(null);
-            await fetchSessions();
-            toast.success('Session deleted');
-        } else {
-            setConfirmDelete(sessionId);
-            setTimeout(() => setConfirmDelete(null), 3000);
-        }
+        await deleteSession(sessionId);
+        setConfirmDelete(null);
+        await fetchSessions();
+        toast.success('Session deleted');
     };
 
     return (
@@ -328,28 +326,24 @@ export function SessionsPage() {
                                                             variant="ghost"
                                                             size="icon"
                                                             onClick={() =>
-                                                                handleStop(
+                                                                setConfirmStop(
                                                                     session.sessionId,
                                                                 )
                                                             }
+                                                            className="text-amber-600 hover:bg-amber-50"
                                                         >
-                                                            <Square className="h-4 w-4 text-amber-600" />
+                                                            <Square className="h-4 w-4" />
                                                         </Button>
                                                     )}
                                                 <Button
                                                     variant="ghost"
                                                     size="icon"
                                                     onClick={() =>
-                                                        handleDelete(
+                                                        setConfirmDelete(
                                                             session.sessionId,
                                                         )
                                                     }
-                                                    className={
-                                                        confirmDelete ===
-                                                        session.sessionId
-                                                            ? 'text-destructive bg-destructive/10'
-                                                            : ''
-                                                    }
+                                                    className="text-destructive hover:bg-destructive/10"
                                                 >
                                                     <Trash2 className="h-4 w-4" />
                                                 </Button>
@@ -379,6 +373,72 @@ export function SessionsPage() {
                     onClose={() => setQrSessionId(null)}
                 />
             )}
+
+            {/* Stop Confirmation Dialog */}
+            <Dialog
+                open={!!confirmStop}
+                onOpenChange={(v) => !v && setConfirmStop(null)}
+            >
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Stop Session</DialogTitle>
+                        <DialogDescription>
+                            Are you sure you want to stop this session? You can
+                            resume it later.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="flex gap-3 justify-end">
+                        <Button
+                            variant="outline"
+                            onClick={() => setConfirmStop(null)}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            variant="default"
+                            onClick={() =>
+                                confirmStop && handleStop(confirmStop)
+                            }
+                        >
+                            Stop
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            {/* Delete Confirmation Dialog */}
+            <Dialog
+                open={!!confirmDelete}
+                onOpenChange={(v) => !v && setConfirmDelete(null)}
+            >
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle className="text-destructive">
+                            Delete Session
+                        </DialogTitle>
+                        <DialogDescription>
+                            This will permanently delete the session and all
+                            associated data. This action cannot be undone.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="flex gap-3 justify-end">
+                        <Button
+                            variant="outline"
+                            onClick={() => setConfirmDelete(null)}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            onClick={() =>
+                                confirmDelete && handleDelete(confirmDelete)
+                            }
+                        >
+                            Delete
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

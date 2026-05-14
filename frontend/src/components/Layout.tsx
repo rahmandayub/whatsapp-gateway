@@ -11,6 +11,7 @@ import {
     MessageSquare,
     FileText,
     KeyRound,
+    Shield,
     Menu,
     Sun,
     Moon,
@@ -25,6 +26,7 @@ const navItems = [
     { to: '/messages', label: 'Messages', icon: MessageSquare },
     { to: '/templates', label: 'Templates', icon: FileText },
     { to: '/keys', label: 'API Keys', icon: KeyRound },
+    { to: '/admin-tokens', label: 'Admin Tokens', icon: Shield },
 ];
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {

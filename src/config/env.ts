@@ -36,13 +36,6 @@ function validateEnv(): void {
         errors.push('DATABASE_URL is required');
     }
 
-    const masterApiKeyHash = process.env.MASTER_API_KEY_HASH;
-    if (!masterApiKeyHash || masterApiKeyHash.length === 0) {
-        errors.push(
-            'MASTER_API_KEY_HASH is required (plaintext MASTER_API_KEY is no longer supported)',
-        );
-    }
-
     if (errors.length > 0) {
         const message =
             'Environment validation failed:\n  - ' + errors.join('\n  - ');

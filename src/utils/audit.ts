@@ -35,9 +35,18 @@ export async function logAudit(
     }
 }
 
-export function getActorInfo(req: Request & { apiKey?: { id: string }; admin?: boolean }): { actorType: string; actorId: string } {
+export function getActorInfo(
+    req: Request & {
+        apiKey?: { id: string };
+        admin?: boolean;
+        adminToken?: { id: string; name: string };
+    },
+): { actorType: string; actorId: string } {
     if (req.apiKey) {
         return { actorType: 'api_key', actorId: req.apiKey.id };
+    }
+    if (req.adminToken) {
+        return { actorType: 'admin_token', actorId: req.adminToken.id };
     }
     return { actorType: 'admin', actorId: ADMIN_USERNAME || 'admin' };
 }

@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { ApiKeyRepository } from '../repositories/ApiKeyRepository.js';
+import { AdminTokenRepository } from '../repositories/AdminTokenRepository.js';
 import { AuditLogRepository } from '../repositories/AuditLogRepository.js';
 import { SessionRepository } from '../repositories/SessionRepository.js';
 import { MessageLogRepository } from '../repositories/MessageLogRepository.js';
@@ -17,6 +18,7 @@ const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH;
 const JWT_SECRET = process.env.JWT_SECRET;
 
 const apiKeyRepo = new ApiKeyRepository();
+const adminTokenRepo = new AdminTokenRepository();
 const auditRepo = new AuditLogRepository();
 const sessionRepo = new SessionRepository();
 const messageLogRepo = new MessageLogRepository();
@@ -330,5 +332,169 @@ export const listMessageLogs = asyncHandler(
             }),
         );
         res.json({ status: 'success', logs: transformedLogs });
+    },
+);
+
+export const listAdminTokens = asyncHandler(
+    async (req: Request, res: Response) => {
+        const tokens = await adminTokenRepo.findAll();
+        const sanitized = tokens.map((t) => ({
+            id: t.id,
+            name: t.name,
+            prefix: t.prefix,
+            created_at: t.created_at,
+            last_used_at: t.last_used_at,
+            revoked_at: t.revoked_at,
+            expires_at: t.expires_at,
+            created_by: t.created_by,
+        }));
+        res.json({ status: 'success', adminTokens: sanitized });
+    },
+);
+
+export const createAdminToken = asyncHandler(
+    async (req: Request, res: Response) => {
+        const { name, expiresAt } = req.body;
+        if (!name || typeof name !== 'string') {
+            throw new AppError('Name is required', 400, 'VALIDATION_ERROR');
+        }
+
+        const rawKey = crypto.randomBytes(32).toString('hex');
+        const prefix = 'wak_adm_' + crypto.randomBytes(4).toString('hex');
+        const fullKey = `${prefix}.${rawKey}`;
+        const hash = crypto.createHash('sha256').update(fullKey).digest('hex');
+
+        let parsedExpiresAt: Date | null = null;
+        if (expiresAt) {
+            const parsed = new Date(expiresAt);
+            if (isNaN(parsed.getTime())) {
+                throw new AppError(
+                    'Invalid expiresAt',
+                    400,
+                    'VALIDATION_ERROR',
+                );
+            }
+            parsedExpiresAt = parsed;
+        }
+
+        const id = await adminTokenRepo.create({
+            name: name.trim(),
+            prefix,
+            keyHash: hash,
+            createdBy: ADMIN_USERNAME || 'admin',
+            expiresAt: parsedExpiresAt,
+        });
+
+        await logAudit(
+            'admin',
+            ADMIN_USERNAME || 'admin',
+            'ADMIN_TOKEN_CREATED',
+            req,
+            'admin_token',
+            id,
+        );
+
+        res.json({
+            status: 'success',
+            adminToken: {
+                id,
+                name: name.trim(),
+                prefix,
+                token: fullKey,
+            },
+        });
+    },
+);
+
+export const regenerateAdminToken = asyncHandler(
+    async (req: Request, res: Response) => {
+        const id = Array.isArray(req.params.id)
+            ? req.params.id[0]
+            : req.params.id;
+
+        const existing = await adminTokenRepo.findById(id);
+        if (!existing) {
+            throw new AppError('Admin token not found', 404, 'NOT_FOUND');
+        }
+
+        const rawKey = crypto.randomBytes(32).toString('hex');
+        const prefix = 'wak_adm_' + crypto.randomBytes(4).toString('hex');
+        const fullKey = `${prefix}.${rawKey}`;
+        const hash = crypto.createHash('sha256').update(fullKey).digest('hex');
+
+        await adminTokenRepo.rotate(id, prefix, hash);
+
+        await logAudit(
+            'admin',
+            ADMIN_USERNAME || 'admin',
+            'ADMIN_TOKEN_REGENERATED',
+            req,
+            'admin_token',
+            id,
+        );
+
+        res.json({
+            status: 'success',
+            adminToken: {
+                id,
+                name: existing.name,
+                prefix,
+                token: fullKey,
+            },
+        });
+    },
+);
+
+export const revokeAdminToken = asyncHandler(
+    async (req: Request & { adminToken?: { id: string } }, res: Response) => {
+        const id = Array.isArray(req.params.id)
+            ? req.params.id[0]
+            : req.params.id;
+
+        if (req.adminToken && req.adminToken.id === id) {
+            throw new AppError(
+                'Cannot revoke the admin token you are currently using',
+                400,
+                'VALIDATION_ERROR',
+            );
+        }
+
+        await adminTokenRepo.revoke(id);
+        await logAudit(
+            'admin',
+            ADMIN_USERNAME || 'admin',
+            'ADMIN_TOKEN_REVOKED',
+            req,
+            'admin_token',
+            id,
+        );
+        res.json({ status: 'success', message: 'Admin token revoked' });
+    },
+);
+
+export const deleteAdminToken = asyncHandler(
+    async (req: Request & { adminToken?: { id: string } }, res: Response) => {
+        const id = Array.isArray(req.params.id)
+            ? req.params.id[0]
+            : req.params.id;
+
+        if (req.adminToken && req.adminToken.id === id) {
+            throw new AppError(
+                'Cannot delete the admin token you are currently using',
+                400,
+                'VALIDATION_ERROR',
+            );
+        }
+
+        await adminTokenRepo.delete(id);
+        await logAudit(
+            'admin',
+            ADMIN_USERNAME || 'admin',
+            'ADMIN_TOKEN_DELETED',
+            req,
+            'admin_token',
+            id,
+        );
+        res.json({ status: 'success', message: 'Admin token deleted' });
     },
 );

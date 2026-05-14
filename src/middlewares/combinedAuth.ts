@@ -1,27 +1,20 @@
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
-import bcrypt from 'bcrypt';
 import { ApiKeyRepository } from '../repositories/ApiKeyRepository.js';
+import { AdminTokenRepository } from '../repositories/AdminTokenRepository.js';
 import { logger } from '../utils/logger.js';
 
 export interface CombinedAuthRequest extends Request {
     apiKey?: { id: string; prefix: string; name: string };
     admin?: boolean;
+    adminToken?: { id: string; name: string };
 }
 
 const apiKeyRepo = new ApiKeyRepository();
-const MASTER_API_KEY_HASH = process.env.MASTER_API_KEY_HASH;
+const adminTokenRepo = new AdminTokenRepository();
 const JWT_SECRET = process.env.JWT_SECRET;
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME;
-
-function verifyMasterKey(key: string): boolean {
-    if (!key || key.length < 10) return false;
-    if (MASTER_API_KEY_HASH) {
-        return bcrypt.compareSync(key, MASTER_API_KEY_HASH);
-    }
-    return false;
-}
 
 export async function combinedAuth(
     req: CombinedAuthRequest,
@@ -51,11 +44,35 @@ export async function combinedAuth(
         }
     }
 
-    // Try admin key header
-    const adminKey = req.headers['x-admin-key'] as string;
-    if (adminKey && verifyMasterKey(adminKey)) {
-        req.admin = true;
-        return next();
+    // Try admin bearer token
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        const bearerToken = authHeader.slice(7);
+        if (bearerToken && bearerToken.length >= 10) {
+            try {
+                const hash = crypto
+                    .createHash('sha256')
+                    .update(bearerToken)
+                    .digest('hex');
+                const record = await adminTokenRepo.findByHash(hash);
+                if (
+                    record &&
+                    !record.revoked_at &&
+                    (!record.expires_at ||
+                        new Date(record.expires_at) > new Date())
+                ) {
+                    req.admin = true;
+                    req.adminToken = {
+                        id: record.id,
+                        name: record.name,
+                    };
+                    adminTokenRepo.updateLastUsedAt(record.id).catch(() => {});
+                    return next();
+                }
+            } catch (err) {
+                logger.error({ err }, 'Admin token auth lookup failed');
+            }
+        }
     }
 
     // Try JWT cookie
