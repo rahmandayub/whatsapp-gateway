@@ -10,32 +10,24 @@ import {
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
-import { MessageCircle, ArrowRight, Loader2 } from 'lucide-react';
+import { Shield, ArrowRight, Loader2 } from 'lucide-react';
 
 export default function AuthScreen() {
     const { login } = useAuth();
-    const [inputKey, setInputKey] = useState('');
+    const [username, setUsername] = useState('');
+    const [password, setPassword] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
 
     const handleSubmit = async () => {
-        if (!inputKey.trim()) return;
+        if (!username.trim() || !password.trim()) return;
         setIsLoading(true);
         setError('');
 
         try {
-            const res = await fetch('/api/v1/sessions', {
-                headers: { 'x-api-key': inputKey.trim() },
-            });
-            if (res.ok) {
-                login(inputKey.trim());
-            } else if (res.status === 401 || res.status === 403) {
-                setError('Invalid API Key.');
-            } else {
-                setError(`Server error (status ${res.status})`);
-            }
-        } catch {
-            setError('Server unreachable. Is the backend running?');
+            await login(username.trim(), password.trim());
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Login failed');
         } finally {
             setIsLoading(false);
         }
@@ -46,11 +38,11 @@ export default function AuthScreen() {
             <Card className="w-full max-w-md">
                 <CardHeader className="text-center space-y-1">
                     <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary text-primary-foreground mx-auto mb-2">
-                        <MessageCircle className="h-6 w-6" />
+                        <Shield className="h-6 w-6" />
                     </div>
-                    <CardTitle className="text-2xl">Welcome Back</CardTitle>
+                    <CardTitle className="text-2xl">Admin Login</CardTitle>
                     <CardDescription>
-                        Enter your API Key to access the gateway
+                        Sign in to manage API keys and sessions
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -60,32 +52,48 @@ export default function AuthScreen() {
                         </div>
                     )}
                     <div className="space-y-2">
-                        <Label htmlFor="api-key">API Key</Label>
+                        <Label htmlFor="username">Username</Label>
                         <Input
-                            id="api-key"
-                            type="password"
-                            value={inputKey}
-                            onChange={(e) => setInputKey(e.target.value)}
+                            id="username"
+                            type="text"
+                            value={username}
+                            onChange={(e) => setUsername(e.target.value)}
                             onKeyDown={(e) =>
                                 e.key === 'Enter' && handleSubmit()
                             }
-                            placeholder="sk_live_..."
+                            placeholder="admin"
+                            disabled={isLoading}
+                        />
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="password">Password</Label>
+                        <Input
+                            id="password"
+                            type="password"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            onKeyDown={(e) =>
+                                e.key === 'Enter' && handleSubmit()
+                            }
+                            placeholder="••••••••"
                             disabled={isLoading}
                         />
                     </div>
                     <Button
                         onClick={handleSubmit}
-                        disabled={isLoading || !inputKey.trim()}
+                        disabled={
+                            isLoading || !username.trim() || !password.trim()
+                        }
                         className="w-full"
                     >
                         {isLoading ? (
                             <>
                                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                Connecting...
+                                Signing in...
                             </>
                         ) : (
                             <>
-                                Access Dashboard
+                                Sign In
                                 <ArrowRight className="ml-2 h-4 w-4" />
                             </>
                         )}

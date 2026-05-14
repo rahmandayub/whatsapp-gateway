@@ -4,7 +4,13 @@ import globals from 'globals';
 
 export default [
     {
-        ignores: ['dist', 'node_modules', 'auth_info_baileys', 'src/public'],
+        ignores: [
+            'dist',
+            'node_modules',
+            'auth_info_baileys',
+            'src/public',
+            'frontend',
+        ],
     },
     eslintJs.configs.recommended,
     ...tseslint.configs.recommended,
@@ -20,7 +26,7 @@ export default [
         },
     },
     {
-        files: ['eslint.config.ts'],
+        files: ['eslint.config.ts', 'scripts/**/*.ts'],
         languageOptions: {
             parserOptions: {
                 projectService: false,

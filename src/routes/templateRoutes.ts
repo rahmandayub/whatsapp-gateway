@@ -1,8 +1,11 @@
 import express from 'express';
 import * as templateController from '../controllers/templateController.js';
 import { validate, schemas } from '../middlewares/validationMiddleware.js';
+import { combinedAuth } from '../middlewares/combinedAuth.js';
 
 const router = express.Router();
+
+router.use(combinedAuth);
 
 router.post(
     '/',

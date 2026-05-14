@@ -26,13 +26,17 @@ export class MessageLogRepository {
             data.recipient,
             data.message_type,
             data.content_preview,
-            data.status
+            data.status,
         ];
 
         await pool.query(query, values);
     }
 
-    async findBySessionId(sessionId: string, limit = 50, offset = 0): Promise<MessageLog[]> {
+    async findBySessionId(
+        sessionId: string,
+        limit = 50,
+        offset = 0,
+    ): Promise<MessageLog[]> {
         const query = `
             SELECT * FROM message_logs
             WHERE session_id = $1
@@ -40,6 +44,16 @@ export class MessageLogRepository {
             LIMIT $2 OFFSET $3
         `;
         const { rows } = await pool.query(query, [sessionId, limit, offset]);
+        return rows;
+    }
+
+    async findAll(limit = 100, offset = 0): Promise<MessageLog[]> {
+        const query = `
+            SELECT * FROM message_logs
+            ORDER BY timestamp DESC
+            LIMIT $1 OFFSET $2
+        `;
+        const { rows } = await pool.query(query, [limit, offset]);
         return rows;
     }
 }

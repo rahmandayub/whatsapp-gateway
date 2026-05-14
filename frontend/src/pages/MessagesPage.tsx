@@ -65,6 +65,8 @@ function SendMessageDialog({
     const [files, setFiles] = useState<FileItem[]>([]);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
+    const selectedSession = sessions.find((s) => s.sessionId === sessionId);
+
     const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         const selected = Array.from(e.target.files || []);
         const newFiles = selected.map((f) => ({
@@ -165,7 +167,15 @@ function SendMessageDialog({
                             onValueChange={(v) => setSessionId(v ?? '')}
                         >
                             <SelectTrigger className="w-full">
-                                <SelectValue placeholder="Select a session..." />
+                                <SelectValue placeholder="Select a session...">
+                                    {selectedSession ? (
+                                        <>
+                                            {selectedSession.name}
+                                            {selectedSession.whatsappId &&
+                                                ` - ${selectedSession.whatsappId}`}
+                                        </>
+                                    ) : null}
+                                </SelectValue>
                             </SelectTrigger>
                             <SelectContent>
                                 {sessions
@@ -175,7 +185,9 @@ function SendMessageDialog({
                                             key={s.sessionId}
                                             value={s.sessionId}
                                         >
-                                            {s.sessionId}
+                                            {s.name}
+                                            {s.whatsappId &&
+                                                ` - ${s.whatsappId}`}
                                         </SelectItem>
                                     ))}
                             </SelectContent>
@@ -322,7 +334,7 @@ export function MessagesPage() {
             </Tabs>
 
             <Card size="flush">
-                <ScrollArea className="h-[60vh]">
+                <ScrollArea className="w-full">
                     <Table>
                         <TableHeader>
                             <TableRow>

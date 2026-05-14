@@ -2,8 +2,13 @@ import express from 'express';
 import * as sessionController from '../controllers/sessionController.js';
 import { validate, schemas } from '../middlewares/validationMiddleware.js';
 import { upload } from '../config/upload.js';
+import { combinedAuth } from '../middlewares/combinedAuth.js';
+import { sessionOwnershipGuard } from '../middlewares/sessionOwnershipGuard.js';
 
 const router = express.Router();
+
+// All routes require API key OR admin auth
+router.use(combinedAuth);
 
 router.post(
     '/start',
@@ -11,6 +16,10 @@ router.post(
     sessionController.startSession,
 );
 router.get('/', sessionController.getSessions);
+
+// Routes below require ownership verification
+router.use('/:sessionId', sessionOwnershipGuard);
+
 router.get('/:sessionId/status', sessionController.getSessionStatus);
 router.get('/:sessionId/qr', sessionController.getSessionQR);
 router.post('/:sessionId/stop', sessionController.stopSession);
@@ -27,7 +36,7 @@ router.post(
 );
 router.post(
     '/:sessionId/message/send/file',
-    upload.array('files', 10), // Limit to 10 files
+    upload.array('files', 10),
     sessionController.sendFile,
 );
 router.post(
@@ -35,9 +44,6 @@ router.post(
     validate(schemas.sendTemplate),
     sessionController.sendTemplate,
 );
-
-// Message Log (in-memory, for admin display)
-router.get('/messages/log', sessionController.getMessageLog); // All sessions
-router.get('/:sessionId/messages/log', sessionController.getMessageLog); // Specific session
+router.get('/:sessionId/messages/log', sessionController.getMessageLog);
 
 export default router;

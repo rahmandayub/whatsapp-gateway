@@ -10,6 +10,7 @@ import {
     Smartphone,
     MessageSquare,
     FileText,
+    KeyRound,
     Menu,
     Sun,
     Moon,
@@ -23,6 +24,7 @@ const navItems = [
     { to: '/sessions', label: 'Sessions', icon: Smartphone },
     { to: '/messages', label: 'Messages', icon: MessageSquare },
     { to: '/templates', label: 'Templates', icon: FileText },
+    { to: '/keys', label: 'API Keys', icon: KeyRound },
 ];
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {

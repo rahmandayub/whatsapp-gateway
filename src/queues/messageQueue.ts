@@ -1,15 +1,21 @@
 import { Queue } from 'bullmq';
 import { redisConfig } from '../config/redis.js';
 
+const connection = {
+    host: redisConfig.host,
+    port: redisConfig.port,
+    password: redisConfig.password,
+};
+
 export const messageQueue = new Queue('whatsapp-message-queue', {
-    connection: redisConfig,
+    connection,
     defaultJobOptions: {
         attempts: 3,
         backoff: {
             type: 'exponential',
             delay: 1000,
         },
-        removeOnComplete: 1000, // Keep last 1000 completed jobs
-        removeOnFail: 5000, // Keep last 5000 failed jobs for debugging
+        removeOnComplete: 500,
+        removeOnFail: 100, // Limit failed job retention for security
     },
 });

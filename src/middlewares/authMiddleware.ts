@@ -1,8 +1,6 @@
+import '../config/env.js';
 import { Request, Response, NextFunction } from 'express';
-import dotenv from 'dotenv';
 import crypto from 'crypto';
-
-dotenv.config();
 
 const apiKeyAuth = (req: Request, res: Response, next: NextFunction) => {
     const validApiKey = process.env.API_KEY;

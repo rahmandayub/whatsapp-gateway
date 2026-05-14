@@ -3,6 +3,7 @@ import { Queue } from 'bullmq';
 const connection = {
     host: process.env.REDIS_HOST || 'localhost',
     port: parseInt(process.env.REDIS_PORT || '6379'),
+    password: process.env.REDIS_PASSWORD,
 };
 
 export const webhookQueue = new Queue('webhookQueue', {
@@ -11,9 +12,9 @@ export const webhookQueue = new Queue('webhookQueue', {
         attempts: 5,
         backoff: {
             type: 'exponential',
-            delay: 1000, // Initial delay 1s, then 2s, 4s, 8s, 16s
+            delay: 1000,
         },
-        removeOnComplete: true, // Keep history manageable
-        removeOnFail: false, // Keep failed jobs for inspection/dead letter
+        removeOnComplete: true,
+        removeOnFail: 50, // Limit failed job retention for security
     },
 });

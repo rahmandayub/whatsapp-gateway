@@ -11,15 +11,71 @@ import {
     ValidationError,
 } from '../errors/AppError.js';
 
+// Extend Request type for apiKey
+interface ApiKeyRequest extends Request {
+    apiKey?: { id: string; prefix: string; name: string };
+    admin?: boolean;
+}
+
+function safeSessionId(req: Request): string {
+    const sid = req.params.sessionId;
+    return Array.isArray(sid) ? sid[0] : sid;
+}
+
 export const startSession = asyncHandler(
-    async (req: Request, res: Response) => {
-        const { sessionId, webhookUrl } = req.body;
-        // Joi middleware handles basic validation, but good to be safe
-        if (!sessionId) {
-            throw new ValidationError('sessionId is required');
+    async (req: ApiKeyRequest, res: Response) => {
+        const {
+            name,
+            sessionId: providedSessionId,
+            webhookUrl,
+            apiKeyId: providedApiKeyId,
+        } = req.body;
+        const sessionName = name || providedSessionId;
+        let apiKeyId = req.apiKey?.id;
+
+        // Admin can provide apiKeyId or auto-create one
+        if (req.admin) {
+            if (providedApiKeyId) {
+                apiKeyId = providedApiKeyId;
+            } else {
+                // Auto-create API key for admin
+                const crypto = await import('crypto');
+                const rawKey = crypto.randomBytes(32).toString('hex');
+                const prefix = 'wak_' + crypto.randomBytes(4).toString('hex');
+                const fullKey = `${prefix}.${rawKey}`;
+                const hash = crypto
+                    .createHash('sha256')
+                    .update(fullKey)
+                    .digest('hex');
+
+                const { ApiKeyRepository } =
+                    await import('../repositories/ApiKeyRepository.js');
+                const apiKeyRepo = new ApiKeyRepository();
+                apiKeyId = await apiKeyRepo.create({
+                    name: `Auto-generated for session: ${sessionName}`,
+                    prefix,
+                    keyHash: hash,
+                    fullKey,
+                    createdBy: 'admin',
+                });
+            }
+        } else {
+            if (!apiKeyId) {
+                throw new AppError('API key required', 401, 'UNAUTHORIZED');
+            }
         }
+
+        if (!sessionName) {
+            throw new ValidationError('name or sessionId is required');
+        }
+
+        if (!apiKeyId) {
+            throw new AppError('API key required', 401, 'UNAUTHORIZED');
+        }
+
         const result = await whatsAppService.startSession(
-            sessionId,
+            apiKeyId,
+            sessionName,
             webhookUrl,
         );
         res.json(result);
@@ -28,10 +84,8 @@ export const startSession = asyncHandler(
 
 export const getSessionStatus = asyncHandler(
     async (req: Request, res: Response) => {
-        const { sessionId } = req.params;
-        const result = await whatsAppService.getSessionStatus(
-            Array.isArray(sessionId) ? sessionId[0] : sessionId,
-        );
+        const sessionId = safeSessionId(req);
+        const result = await whatsAppService.getSessionStatus(sessionId);
         if (!result) {
             throw new NotFoundError('Session not found');
         }
@@ -39,35 +93,40 @@ export const getSessionStatus = asyncHandler(
     },
 );
 
-export const getSessions = asyncHandler(async (req: Request, res: Response) => {
-    const sessions = await whatsAppService.getAllSessions();
-    res.json({ sessions });
-});
+export const getSessions = asyncHandler(
+    async (req: ApiKeyRequest, res: Response) => {
+        const apiKeyId = req.apiKey?.id;
+        if (req.admin) {
+            const sessions = await whatsAppService.getAllSessions();
+            res.json({ sessions });
+            return;
+        }
+        if (!apiKeyId) {
+            throw new AppError('API key required', 401, 'UNAUTHORIZED');
+        }
+        const sessions = await whatsAppService.getSessionsByApiKey(apiKeyId);
+        res.json({ sessions });
+    },
+);
 
 export const stopSession = asyncHandler(async (req: Request, res: Response) => {
-    const { sessionId } = req.params;
-    const result = await whatsAppService.stopSession(
-        Array.isArray(sessionId) ? sessionId[0] : sessionId,
-    );
+    const sessionId = safeSessionId(req);
+    const result = await whatsAppService.stopSession(sessionId);
     res.json(result);
 });
 
 export const logoutSession = asyncHandler(
     async (req: Request, res: Response) => {
-        const { sessionId } = req.params;
-        const result = await whatsAppService.logoutSession(
-            Array.isArray(sessionId) ? sessionId[0] : sessionId,
-        );
+        const sessionId = safeSessionId(req);
+        const result = await whatsAppService.logoutSession(sessionId);
         res.json(result);
     },
 );
 
 export const getSessionQR = asyncHandler(
     async (req: Request, res: Response) => {
-        const { sessionId } = req.params;
-        const result = whatsAppService.getQRCode(
-            Array.isArray(sessionId) ? sessionId[0] : sessionId,
-        );
+        const sessionId = safeSessionId(req);
+        const result = whatsAppService.getQRCode(sessionId);
         if (!result) {
             throw new NotFoundError('Session not found');
         }
@@ -81,7 +140,6 @@ export const getSessionQR = asyncHandler(
         }
 
         if (!result.qr) {
-            // If we are connecting but no QR yet, or any other state without QR
             res.status(404).json({
                 status: result.status,
                 message: 'QR code not available yet',
@@ -92,22 +150,17 @@ export const getSessionQR = asyncHandler(
         try {
             const qrImage = await QRCode.toDataURL(result.qr);
             res.json({ ...result, qrImage });
-        } catch (err) {
-            console.error('QR Generation error:', err);
-            // Fallback to sending just the raw string if image gen fails
+        } catch {
             res.json(result);
         }
     },
 );
 
 export const sendText = asyncHandler(async (req: Request, res: Response) => {
-    const { sessionId } = req.params;
+    const sessionId = safeSessionId(req);
     const { to, message } = req.body;
 
-    // Check if session is connected
-    const sessionStatus = await whatsAppService.getSessionStatus(
-        Array.isArray(sessionId) ? sessionId[0] : sessionId,
-    );
+    const sessionStatus = await whatsAppService.getSessionStatus(sessionId);
     if (!sessionStatus || sessionStatus.status !== 'CONNECTED') {
         throw new AppError('Session not active', 404, 'SESSION_NOT_ACTIVE');
     }
@@ -122,12 +175,10 @@ export const sendText = asyncHandler(async (req: Request, res: Response) => {
 });
 
 export const sendMedia = asyncHandler(async (req: Request, res: Response) => {
-    const { sessionId } = req.params;
+    const sessionId = safeSessionId(req);
     const { to, type, mediaUrl, caption } = req.body;
 
-    const sessionStatus = await whatsAppService.getSessionStatus(
-        Array.isArray(sessionId) ? sessionId[0] : sessionId,
-    );
+    const sessionStatus = await whatsAppService.getSessionStatus(sessionId);
     if (!sessionStatus || sessionStatus.status !== 'CONNECTED') {
         throw new AppError('Session not active', 404, 'SESSION_NOT_ACTIVE');
     }
@@ -145,12 +196,10 @@ export const sendMedia = asyncHandler(async (req: Request, res: Response) => {
 
 export const sendTemplate = asyncHandler(
     async (req: Request, res: Response) => {
-        const { sessionId } = req.params;
+        const sessionId = safeSessionId(req);
         const { to, templateName, variables } = req.body;
 
-        const sessionStatus = await whatsAppService.getSessionStatus(
-            Array.isArray(sessionId) ? sessionId[0] : sessionId,
-        );
+        const sessionStatus = await whatsAppService.getSessionStatus(sessionId);
         if (!sessionStatus || sessionStatus.status !== 'CONNECTED') {
             throw new AppError('Session not active', 404, 'SESSION_NOT_ACTIVE');
         }
@@ -167,13 +216,11 @@ export const sendTemplate = asyncHandler(
 );
 
 export const sendFile = asyncHandler(async (req: Request, res: Response) => {
-    const { sessionId } = req.params;
+    const sessionId = safeSessionId(req);
     const { to } = req.body;
-    // multer parses 'captions' field.
     const { captions } = req.body;
     const files = req.files as Express.Multer.File[];
 
-    // Ensure cleanup helper
     const cleanupFiles = () => {
         if (files) {
             files.forEach((file) => fs.unlink(file.path, () => {}));
@@ -185,15 +232,12 @@ export const sendFile = asyncHandler(async (req: Request, res: Response) => {
         throw new ValidationError('Missing parameters: to, files');
     }
 
-    const sessionStatus = await whatsAppService.getSessionStatus(
-        Array.isArray(sessionId) ? sessionId[0] : sessionId,
-    );
+    const sessionStatus = await whatsAppService.getSessionStatus(sessionId);
     if (!sessionStatus || sessionStatus.status !== 'CONNECTED') {
         cleanupFiles();
         throw new AppError('Session not active', 404, 'SESSION_NOT_ACTIVE');
     }
 
-    // Normalize captions to array to match files index
     let captionsArray: string[] = [];
     if (Array.isArray(captions)) {
         captionsArray = captions as string[];
@@ -202,15 +246,12 @@ export const sendFile = asyncHandler(async (req: Request, res: Response) => {
     }
 
     const jobs = [];
-    // First pass: Validation
     for (const file of files) {
-        // Task 1.3.3: MIME type validation
         const isValidSignature = await validateFileSignature(
             file.path,
             file.mimetype,
         );
         if (!isValidSignature) {
-            // Fail the whole batch before queueing anything
             cleanupFiles();
             throw new ValidationError(
                 `Security validation failed for file: ${file.originalname}. Content does not match extension/type.`,
@@ -218,7 +259,6 @@ export const sendFile = asyncHandler(async (req: Request, res: Response) => {
         }
     }
 
-    // Second pass: Queueing
     for (let i = 0; i < files.length; i++) {
         const file = files[i];
         const fileCaption = captionsArray[i] || '';
@@ -243,10 +283,8 @@ export const sendFile = asyncHandler(async (req: Request, res: Response) => {
 
 export const getMessageLog = asyncHandler(
     async (req: Request, res: Response) => {
-        const { sessionId } = req.params;
-        const log = await whatsAppService.getMessageLog(
-            Array.isArray(sessionId) ? sessionId[0] : sessionId || null,
-        );
+        const sessionId = safeSessionId(req);
+        const log = await whatsAppService.getMessageLog(sessionId || null);
         res.json({ status: 'success', messages: log });
     },
 );

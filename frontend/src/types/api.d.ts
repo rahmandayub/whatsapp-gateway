@@ -1,5 +1,6 @@
 export interface Session {
     sessionId: string;
+    name: string;
     status: 'CONNECTED' | 'SCANNING_QR' | 'CONNECTING' | 'STOPPED' | 'DISCONNECTED';
     whatsappId?: string;
 }
@@ -44,4 +45,8 @@ export interface ApiResponse {
             };
         }>;
     };
+    apiKeys?: unknown[];
+    apiKey?: unknown;
+    logs?: unknown[];
+    [key: string]: unknown;
 }

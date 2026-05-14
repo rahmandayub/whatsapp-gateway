@@ -1,9 +1,9 @@
 import { type ReactNode } from 'react';
 interface AuthContextType {
-    apiKey: string;
     isAuthenticated: boolean;
-    login: (key: string) => void;
-    logout: () => void;
+    isLoading: boolean;
+    login: (username: string, password: string) => Promise<void>;
+    logout: () => Promise<void>;
 }
 export declare function AuthProvider({ children }: {
     children: ReactNode;

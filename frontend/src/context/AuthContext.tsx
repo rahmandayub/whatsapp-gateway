@@ -2,43 +2,68 @@ import {
     createContext,
     useContext,
     useState,
+    useEffect,
     useCallback,
     type ReactNode,
 } from 'react';
 
 interface AuthContextType {
-    apiKey: string;
     isAuthenticated: boolean;
-    login: (key: string) => void;
-    logout: () => void;
+    isLoading: boolean;
+    login: (username: string, password: string) => Promise<void>;
+    logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-const STORAGE_KEY = 'WA_GATEWAY_API_KEY';
-
 export function AuthProvider({ children }: { children: ReactNode }) {
-    const [apiKey, setApiKey] = useState(
-        () => localStorage.getItem(STORAGE_KEY) || '',
-    );
-    const [isAuthenticated, setIsAuthenticated] = useState(!!apiKey);
+    const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [isLoading, setIsLoading] = useState(true);
 
-    const login = useCallback((key: string) => {
-        localStorage.setItem(STORAGE_KEY, key);
-        setApiKey(key);
+    useEffect(() => {
+        const abortController = new AbortController();
+        fetch('/api/v1/admin/me', {
+            credentials: 'include',
+            signal: abortController.signal,
+        })
+            .then((res) => {
+                if (res.ok) setIsAuthenticated(true);
+            })
+            .catch(() => {})
+            .finally(() => setIsLoading(false));
+        return () => abortController.abort();
+    }, []);
+
+    const login = useCallback(async (username: string, password: string) => {
+        const abortController = new AbortController();
+        const res = await fetch('/api/v1/admin/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ username, password }),
+            signal: abortController.signal,
+        });
+        if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data.message || 'Login failed');
+        }
         setIsAuthenticated(true);
     }, []);
 
-    const logout = useCallback(() => {
-        localStorage.removeItem(STORAGE_KEY);
-        setApiKey('');
+    const logout = useCallback(async () => {
+        const abortController = new AbortController();
+        await fetch('/api/v1/admin/logout', {
+            method: 'POST',
+            credentials: 'include',
+            signal: abortController.signal,
+        }).catch(() => {});
         setIsAuthenticated(false);
     }, []);
 
     return (
         // eslint-disable-next-line @eslint-react/no-context-provider
         <AuthContext.Provider
-            value={{ apiKey, isAuthenticated, login, logout }}
+            value={{ isAuthenticated, isLoading, login, logout }}
         >
             {children}
         </AuthContext.Provider>

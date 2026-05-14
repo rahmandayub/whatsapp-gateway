@@ -1,8 +1,6 @@
+import './env.js';
 import { createClient } from 'redis';
-import dotenv from 'dotenv';
 import pino from 'pino';
-
-dotenv.config();
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 
 const redisConfig = {
@@ -11,8 +9,17 @@ const redisConfig = {
     password: process.env.REDIS_PASSWORD || undefined,
 };
 
+function buildRedisUrl(): string {
+    const { host, port, password } = redisConfig;
+    if (password) {
+        const encoded = encodeURIComponent(password);
+        return `redis://:${encoded}@${host}:${port}`;
+    }
+    return `redis://${host}:${port}`;
+}
+
 const redisClient = createClient({
-    url: `redis://${redisConfig.password ? `:${redisConfig.password}@` : ''}${redisConfig.host}:${redisConfig.port}`,
+    url: buildRedisUrl(),
 });
 
 redisClient.on('error', (err) => logger.error({ err }, 'Redis Client Error'));

@@ -4,7 +4,10 @@ import { CONFIG } from '../../config/paths.js';
 import makeWASocket, { useMultiFileAuthState } from '@whiskeysockets/baileys';
 import pino from 'pino';
 import { SessionStore } from './SessionStore.js';
-import { SessionRepository } from '../../repositories/SessionRepository.js';
+import {
+    SessionRepository,
+    SessionRecord,
+} from '../../repositories/SessionRepository.js';
 import { ConnectionHandler } from './ConnectionHandler.js';
 import { WebhookDispatcher } from '../webhook/WebhookDispatcher.js';
 import { logger } from '../../utils/logger.js';
@@ -24,18 +27,25 @@ export class SessionManager {
         this.webhookDispatcher = new WebhookDispatcher();
         this.messageLogRepo = new MessageLogRepository();
 
-        // Circular dependency resolution: ConnectionHandler needs to call back into SessionManager
         this.connectionHandler = new ConnectionHandler(
             this.sessionStore,
             this.sessionRepo,
             this.webhookDispatcher,
-            async (sessionId) => {
-                await this.startSession(sessionId, undefined);
-            }, // Callback for reconnection
+            async (sessionId: string) => {
+                // Reconnection: look up DB record by UUID, then start
+                const dbSession = await this.sessionRepo.findById(sessionId);
+                if (dbSession) {
+                    await this.startSessionInternal(sessionId, dbSession);
+                } else {
+                    logger.warn(
+                        { sessionId },
+                        'Cannot reconnect: session not found in DB',
+                    );
+                }
+            },
         );
     }
 
-    // Expose store for other services (MessageSender)
     getSession(sessionId: string) {
         return this.sessionStore.get(sessionId);
     }
@@ -44,38 +54,53 @@ export class SessionManager {
         return this.sessionStore.getAll();
     }
 
-    async startSession(sessionId: string, webhookUrl?: string | null) {
-        // DB Check
-        const existingSession = await this.sessionRepo.findById(sessionId);
-
-        if (existingSession) {
-            if (!webhookUrl) {
-                webhookUrl = existingSession.webhook_url;
-            } else if (
-                existingSession.webhook_url &&
-                existingSession.webhook_url !== webhookUrl
-            ) {
-                throw new AppError(
-                    'Session ID exists but ownership verification failed',
-                    403,
-                    'FORBIDDEN',
-                );
-            }
-
-            if (this.sessionStore.has(sessionId)) {
-                const existingData = this.sessionStore.get(sessionId);
-                // Preserve reconnect attempts during reconnection
-                const reconnectAttempts = existingData?.reconnectAttempts || 0;
+    async startSession(
+        apiKeyId: string,
+        name: string,
+        webhookUrl?: string | null,
+    ) {
+        const existing = await this.sessionRepo.findByNameAndApiKey(
+            name,
+            apiKeyId,
+        );
+        if (existing) {
+            if (this.sessionStore.has(existing.id)) {
                 return {
                     status: 'already_active',
                     message: 'Session already active',
-                    reconnectAttempts,
+                    sessionId: existing.id,
                 };
             }
-        } else {
-            await this.sessionRepo.create(sessionId, webhookUrl || null);
+            // If exists but not active, update webhook and restart
+            if (webhookUrl !== undefined) {
+                await this.sessionRepo.updateWebhookUrl(
+                    existing.id,
+                    webhookUrl,
+                );
+            }
+            return await this.startSessionInternal(existing.id, existing);
         }
 
+        const id = await this.sessionRepo.create({
+            apiKeyId,
+            name,
+            webhookUrl,
+        });
+        const record = await this.sessionRepo.findById(id);
+        if (!record) {
+            throw new AppError(
+                'Failed to create session',
+                500,
+                'SESSION_CREATE_ERROR',
+            );
+        }
+        return await this.startSessionInternal(id, record);
+    }
+
+    private async startSessionInternal(
+        sessionId: string,
+        dbRecord: SessionRecord,
+    ) {
         const authPath = path.join(CONFIG.AUTH_DIR, sessionId);
         if (!fs.existsSync(authPath)) {
             fs.mkdirSync(authPath, { recursive: true });
@@ -89,14 +114,13 @@ export class SessionManager {
             auth: state,
         });
 
-        // Preserve reconnect attempts if session exists in store (reconnection)
         const existingData = this.sessionStore.get(sessionId);
         const reconnectAttempts = existingData?.reconnectAttempts || 0;
 
         this.sessionStore.set(sessionId, {
             sock,
             status: 'CONNECTING',
-            webhookUrl,
+            webhookUrl: dbRecord.webhook_url,
             qr: null,
             reconnectAttempts,
         });
@@ -120,7 +144,6 @@ export class SessionManager {
                     messageContent?.videoMessage?.caption ||
                     '[Media/Other]';
 
-                // Persist to DB
                 try {
                     await this.messageLogRepo.create({
                         session_id: sessionId,
@@ -129,8 +152,8 @@ export class SessionManager {
                         recipient: msg.key.remoteJid || 'unknown',
                         message_type:
                             Object.keys(messageContent || {})[0] || 'unknown',
-                        content_preview: textContent?.slice(0, 200), // Limit preview size
-                        status: 'sent', // Default for now
+                        content_preview: textContent?.slice(0, 200),
+                        status: 'sent',
                     });
                 } catch (err) {
                     logger.error({ err }, 'Failed to log message');
@@ -211,7 +234,6 @@ export class SessionManager {
                 message: 'Session logged out and data cleared',
             };
         } catch (error: unknown) {
-            // Cleanup anyway
             if (fs.existsSync(authPath)) {
                 fs.rmSync(authPath, { recursive: true, force: true });
             }
@@ -230,22 +252,40 @@ export class SessionManager {
 
         for (const session of sessions) {
             try {
-                // startSession signature: sessionId, webhookUrl
-                await this.startSession(
-                    session.session_id,
-                    session.webhook_url,
-                );
+                await this.startSessionInternal(session.id, session);
             } catch (err) {
                 logger.error(
-                    { sessionId: session.session_id, err },
+                    { sessionId: session.id, err },
                     'Failed to restore session',
                 );
             }
-            await new Promise((resolve) => setTimeout(resolve, 500)); // Throttling
+            await new Promise((resolve) => setTimeout(resolve, 500));
         }
     }
 
-    // Pass-through methods for querying status
+    // Cleanup orphaned auth dirs at startup
+    cleanupOrphanAuthDirs() {
+        if (!fs.existsSync(CONFIG.AUTH_DIR)) return;
+        const dirs = fs.readdirSync(CONFIG.AUTH_DIR);
+        // Directories in auth_info_baileys should be UUIDs matching sessions table
+        // This is best-effort; we don't delete unknown dirs automatically to be safe
+        // Just log warning for now
+        for (const dir of dirs) {
+            const fullPath = path.join(CONFIG.AUTH_DIR, dir);
+            if (fs.statSync(fullPath).isDirectory()) {
+                // UUID validation regex
+                const uuidRegex =
+                    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+                if (!uuidRegex.test(dir)) {
+                    logger.warn(
+                        { dir },
+                        'Orphan/legacy auth directory found (not a UUID), consider manual cleanup',
+                    );
+                }
+            }
+        }
+    }
+
     async getSessionStatus(sessionId: string) {
         const session = this.sessionStore.get(sessionId);
         if (session) {
@@ -279,12 +319,26 @@ export class SessionManager {
     }
 
     async getAllSessionsStatus() {
-        // Merge DB and Memory
         const dbSessions = await this.sessionRepo.findAll();
         return dbSessions.map((row) => {
-            const mem = this.sessionStore.get(row.session_id);
+            const mem = this.sessionStore.get(row.id);
             return {
-                sessionId: row.session_id,
+                sessionId: row.id,
+                name: row.name,
+                status: mem ? mem.status : row.status,
+                whatsappId: mem ? mem.whatsappId : row.whatsapp_id,
+                apiKeyId: row.api_key_id,
+            };
+        });
+    }
+
+    async getSessionsByApiKey(apiKeyId: string) {
+        const dbSessions = await this.sessionRepo.findByApiKey(apiKeyId);
+        return dbSessions.map((row) => {
+            const mem = this.sessionStore.get(row.id);
+            return {
+                sessionId: row.id,
+                name: row.name,
                 status: mem ? mem.status : row.status,
                 whatsappId: mem ? mem.whatsappId : row.whatsapp_id,
             };

@@ -3,7 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import type { ApiResponse } from '../types/api';
 
 export function useApi() {
-    const { apiKey, logout } = useAuth();
+    const { logout } = useAuth();
 
     const apiCall = useCallback(
         async (
@@ -11,15 +11,17 @@ export function useApi() {
             method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET',
             body?: object | FormData,
         ): Promise<ApiResponse | null> => {
-            const headers: Record<string, string> = {
-                'x-api-key': apiKey,
-            };
+            const headers: Record<string, string> = {};
 
             if (!(body instanceof FormData)) {
                 headers['Content-Type'] = 'application/json';
             }
 
-            const config: RequestInit = { method, headers };
+            const config: RequestInit = {
+                method,
+                headers,
+                credentials: 'include',
+            };
             if (body) {
                 config.body =
                     body instanceof FormData ? body : JSON.stringify(body);
@@ -42,7 +44,7 @@ export function useApi() {
                     if (response.status === 401 || response.status === 403) {
                         logout();
                         throw new Error(
-                            'Authentication failed. Please check your API Key.',
+                            'Authentication failed. Please sign in again.',
                         );
                     }
                     throw new Error(data.message || 'API Error');
@@ -52,7 +54,6 @@ export function useApi() {
             } catch (error) {
                 const err =
                     error instanceof Error ? error.message : String(error);
-                // Don't throw on routine polling endpoints
                 if (
                     endpoint.includes('/log') ||
                     endpoint.includes('/sessions')
@@ -62,7 +63,7 @@ export function useApi() {
                 throw new Error(err, { cause: error });
             }
         },
-        [apiKey, logout],
+        [logout],
     );
 
     return apiCall;

@@ -1,20 +1,12 @@
-// Temporary Bridge to keep existing API working while refactoring
-// Phase 3.1: We will replace the monolithic service with the new modular one.
 import { SessionManager } from './session/SessionManager.js';
 import { MessageSender } from './message/MessageSender.js';
 import templateService from './templateService.js';
 import { WebhookDispatcher } from './webhook/WebhookDispatcher.js';
 
-// We need to implement the message listening logic that was in startSession
-// For now, we'll patch it into SessionManager or handle it here?
-// Ideally, SessionManager handles connection logic.
-// We can attach the message listener in SessionManager.startSession
-
 class WhatsAppServiceBridge {
     public sessionManager: SessionManager;
     public messageSender: MessageSender;
     public webhookDispatcher: WebhookDispatcher;
-    private messageLog: unknown[] = []; // Temporary log until DB log phase
 
     constructor() {
         this.sessionManager = new SessionManager();
@@ -22,9 +14,16 @@ class WhatsAppServiceBridge {
         this.webhookDispatcher = new WebhookDispatcher();
     }
 
-    // Delegate methods
-    async startSession(sessionId: string, webhookUrl?: string | null) {
-        return await this.sessionManager.startSession(sessionId, webhookUrl);
+    async startSession(
+        apiKeyId: string,
+        name: string,
+        webhookUrl?: string | null,
+    ) {
+        return await this.sessionManager.startSession(
+            apiKeyId,
+            name,
+            webhookUrl,
+        );
     }
 
     async stopSession(sessionId: string, finalStatus?: string) {
@@ -41,6 +40,10 @@ class WhatsAppServiceBridge {
 
     async getAllSessions() {
         return this.sessionManager.getAllSessionsStatus();
+    }
+
+    async getSessionsByApiKey(apiKeyId: string) {
+        return this.sessionManager.getSessionsByApiKey(apiKeyId);
     }
 
     getQRCode(sessionId: string) {
@@ -75,7 +78,7 @@ class WhatsAppServiceBridge {
     async sendFileMessage(
         sessionId: string,
         to: string,
-        fileObj: Express.Multer.File,
+        fileObj: { path: string; mimetype: string; originalname: string },
         caption?: string,
     ) {
         return this.messageSender.sendFile(sessionId, to, fileObj, caption);
@@ -94,9 +97,7 @@ class WhatsAppServiceBridge {
     }
 
     async getMessageLog(sessionId: string | null) {
-        if (!sessionId) return []; // API change: now requires sessionId for DB query, or we implement findAll in repo
-        // For backwards compatibility, if sessionId is null, return empty or implement findAll
-        // Let's rely on sessionManager to handle it.
+        if (!sessionId) return [];
         return this.sessionManager.getMessageLog(sessionId);
     }
 }

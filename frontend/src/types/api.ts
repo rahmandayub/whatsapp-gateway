@@ -1,5 +1,6 @@
 export interface Session {
     sessionId: string;
+    name: string;
     status:
         | 'CONNECTED'
         | 'SCANNING_QR'
@@ -45,4 +46,8 @@ export interface ApiResponse {
     qr?: string;
     qrImage?: string;
     result?: { messages?: Array<{ key?: { id?: string } }> };
+    apiKeys?: unknown[];
+    apiKey?: unknown;
+    logs?: unknown[];
+    [key: string]: unknown;
 }
