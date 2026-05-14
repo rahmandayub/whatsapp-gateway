@@ -63,13 +63,6 @@ app.use(requestId); // Add Request ID middleware
 app.use(metricsMiddleware); // Add Prometheus metrics
 app.use(limiter);
 
-// Serve static files for Admin Panel
-// 'import.meta.url' logic to get __dirname equivalent in ESM if needed, but relative path often works.
-// Using process.cwd() is safer for project root relative paths.
-const publicPath = path.join(process.cwd(), 'src', 'public');
-app.use('/admin', express.static(publicPath));
-app.use(express.static(publicPath));
-
 // Public Routes
 app.use('/health', healthRoutes);
 app.use('/metrics', metricsRoutes);
@@ -83,8 +76,7 @@ app.use('/api/v1/templates', templateRoutes);
 // Global Error Handler
 app.use(errorHandler);
 
-// Only listen if executed directly, not when imported
-if (import.meta.url === `file://${process.argv[1]}`) {
+function startServer() {
     const PORT = process.env.PORT || 3000;
 
     const initDb = async () => {
@@ -119,4 +111,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.on('SIGINT', () => gracefulShutdown(server));
 }
 
-export { app, logger };
+// Only listen if executed directly, not when imported
+if (import.meta.url === `file://${process.argv[1]}`) {
+    startServer();
+}
+
+export { app, logger, startServer };

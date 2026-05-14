@@ -9,7 +9,7 @@
     "scripts": {
         "test": "vitest run",
         "test:watch": "vitest",
-        "start": "npm run build && node dist/app.js",
+        "start": "npm run build && node dist/server.js",
         "migrate:create": "node-pg-migrate create",
         "migrate:up": "node-pg-migrate up",
         "migrate:down": "node-pg-migrate down",

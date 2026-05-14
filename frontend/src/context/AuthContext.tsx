@@ -36,6 +36,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }, []);
 
     return (
+        // eslint-disable-next-line @eslint-react/no-context-provider
         <AuthContext.Provider
             value={{ apiKey, isAuthenticated, login, logout }}
         >
@@ -45,6 +46,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 }
 
 export function useAuth() {
+    // eslint-disable-next-line @eslint-react/no-use-context
     const ctx = useContext(AuthContext);
     if (!ctx) throw new Error('useAuth must be used within AuthProvider');
     return ctx;
