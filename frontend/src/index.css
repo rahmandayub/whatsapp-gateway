@@ -1,17 +1,16 @@
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+@import 'tailwindcss';
 
-:root {
-    --primary-color: #f97316;
-    --primary-hover: #ea580c;
+@theme {
+    --font-sans: 'Plus Jakarta Sans', system-ui, sans-serif;
+    --color-primary: #f97316;
+    --color-primary-hover: #ea580c;
 }
 
 body {
-    font-family: 'Plus Jakarta Sans', sans-serif;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
-}
-
-[x-cloak] {
-    display: none !important;
+    -moz-osx-font-smoothing: grayscale;
 }
 
 /* Custom Scrollbar */
@@ -52,9 +51,6 @@ body {
 .delay-200 {
     animation-delay: 0.2s;
 }
-.delay-300 {
-    animation-delay: 0.3s;
-}
 
 /* Glassmorphism Utilities */
 .glass {
@@ -73,26 +69,46 @@ body {
         0 2px 4px -1px rgba(0, 0, 0, 0.03);
 }
 
-/* Custom Utilities */
-.btn-primary {
-    background: var(--primary-color);
-    color: white;
-    box-shadow: 0 4px 14px 0 rgba(79, 70, 229, 0.39);
-    transition: all 0.2s ease;
-}
-.btn-primary:hover {
-    background: var(--primary-hover);
-    transform: translateY(-1px);
-    box-shadow: 0 6px 20px rgba(79, 70, 229, 0.23);
-}
-.btn-primary:active {
-    transform: translateY(0);
+/* Toast Animations */
+@keyframes toastSlideIn {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
 }
 
-.input-field {
-    transition: all 0.2s;
+@keyframes toastSlideOut {
+    from {
+        transform: translateX(0);
+        opacity: 1;
+    }
+    to {
+        transform: translateX(100%);
+        opacity: 0;
+    }
 }
-.input-field:focus {
-    box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.1);
-    border-color: var(--primary-color);
+
+@keyframes toastProgress {
+    from {
+        width: 100%;
+    }
+    to {
+        width: 0%;
+    }
+}
+
+.animate-toast-in {
+    animation: toastSlideIn 0.3s ease-out forwards;
+}
+
+.animate-toast-out {
+    animation: toastSlideOut 0.2s ease-in forwards;
+}
+
+.animate-progress {
+    animation: toastProgress 4s linear forwards;
 }

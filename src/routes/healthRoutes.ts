@@ -1,4 +1,4 @@
-import express, { Request, Response } from 'express';
+import express from 'express';
 import pool from '../config/database.js';
 import { webhookQueue } from '../queues/webhookQueue.js';
 import whatsAppService from '../services/whatsappService.js';
@@ -7,14 +7,14 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 const router = express.Router();
 
 // Liveness probe - simple 200 OK if server is running
-router.get('/live', (req: Request, res: Response) => {
+router.get('/live', (req, res) => {
     res.status(200).json({ status: 'ok', uptime: process.uptime() });
 });
 
 // Readiness probe - checks dependencies
 router.get(
     '/ready',
-    asyncHandler(async (req: Request, res: Response) => {
+    asyncHandler(async (req, res, _next) => {
         const health = {
             status: 'ok',
             timestamp: new Date().toISOString(),
@@ -38,7 +38,7 @@ router.get(
         try {
             await pool.query('SELECT 1');
             health.dependencies.database = 'up';
-        } catch (err: any) {
+        } catch {
             health.dependencies.database = 'down';
             isHealthy = false;
         }
@@ -48,7 +48,7 @@ router.get(
             const client = await webhookQueue.client;
             await client.ping();
             health.dependencies.redis = 'up';
-        } catch (err: any) {
+        } catch {
             health.dependencies.redis = 'down';
             isHealthy = false;
         }
@@ -58,9 +58,9 @@ router.get(
             const allSessions = await whatsAppService.getAllSessions();
             health.sessions.total = allSessions.length;
             health.sessions.active = allSessions.filter(
-                (s: any) => s.status === 'CONNECTED',
+                (s) => s.status === 'CONNECTED',
             ).length;
-        } catch (err) {
+        } catch {
             // Non-critical for readiness? Maybe critical for business logic.
             // Let's assume if DB is up, this works, else it failed above.
         }

@@ -26,7 +26,9 @@ dotenv.config();
 
 // Task 1.2.4: Validate auth directory is not under public/
 if (!CONFIG.isPathSecure(CONFIG.AUTH_DIR)) {
-    console.error('FATAL: AUTH_DIR is configured inside the public directory. This is a security risk.');
+    console.error(
+        'FATAL: AUTH_DIR is configured inside the public directory. This is a security risk.',
+    );
     process.exit(1);
 }
 
@@ -42,13 +44,7 @@ app.use(
         contentSecurityPolicy: {
             directives: {
                 defaultSrc: ["'self'"],
-                scriptSrc: [
-                    "'self'",
-                    "'unsafe-inline'",
-                    "'unsafe-eval'", // Alpine.js might need this
-                    'https://cdn.tailwindcss.com',
-                    'https://cdn.jsdelivr.net',
-                ],
+                scriptSrc: ["'self'", "'unsafe-inline'"],
                 styleSrc: [
                     "'self'",
                     "'unsafe-inline'", // Tailwind adds inline styles
@@ -88,7 +84,6 @@ app.use('/api/v1/templates', templateRoutes);
 app.use(errorHandler);
 
 // Only listen if executed directly, not when imported
-// @ts-ignore
 if (import.meta.url === `file://${process.argv[1]}`) {
     const PORT = process.env.PORT || 3000;
 

@@ -80,7 +80,7 @@ export class SessionManager {
         const { state, saveCreds } = await useMultiFileAuthState(authPath);
 
         const sock = makeWASocket({
-            logger: pino({ level: 'silent' }) as any,
+            logger: pino({ level: 'silent' }) as pino.Logger,
             printQRInTerminal: false,
             auth: state,
         });
@@ -161,14 +161,17 @@ export class SessionManager {
 
         try {
             this.sessionStore.delete(sessionId);
-            session.sock.end(undefined);
+            const sock = session.sock as unknown as {
+                end?: (arg?: unknown) => void;
+            };
+            if (sock.end) sock.end(undefined);
             await this.sessionRepo.updateStatus(sessionId, finalStatus);
             logger.info({ sessionId }, 'Session stopped');
             return { status: 'success', message: 'Session stopped' };
-        } catch (error: any) {
+        } catch (error: unknown) {
             this.sessionStore.delete(sessionId);
             throw new AppError(
-                `Error stopping session: ${error.message}`,
+                `Error stopping session: ${error instanceof Error ? error.message : String(error)}`,
                 500,
                 'STOP_ERROR',
             );
@@ -182,8 +185,12 @@ export class SessionManager {
         try {
             if (session) {
                 this.sessionStore.delete(sessionId);
-                await session.sock.logout();
-                session.sock.end(undefined);
+                const sock = session.sock as unknown as {
+                    logout?: () => Promise<void>;
+                    end?: (arg?: unknown) => void;
+                };
+                if (sock.logout) await sock.logout();
+                if (sock.end) sock.end(undefined);
             }
 
             if (fs.existsSync(authPath)) {
@@ -195,14 +202,14 @@ export class SessionManager {
                 status: 'success',
                 message: 'Session logged out and data cleared',
             };
-        } catch (error: any) {
+        } catch (error: unknown) {
             // Cleanup anyway
             if (fs.existsSync(authPath)) {
                 fs.rmSync(authPath, { recursive: true, force: true });
             }
             await this.sessionRepo.delete(sessionId);
             throw new AppError(
-                `Error logging out: ${error.message}`,
+                `Error logging out: ${error instanceof Error ? error.message : String(error)}`,
                 500,
                 'LOGOUT_ERROR',
             );
@@ -266,7 +273,7 @@ export class SessionManager {
     async getAllSessionsStatus() {
         // Merge DB and Memory
         const dbSessions = await this.sessionRepo.findAll();
-        return dbSessions.map((row: any) => {
+        return dbSessions.map((row) => {
             const mem = this.sessionStore.get(row.session_id);
             return {
                 sessionId: row.session_id,

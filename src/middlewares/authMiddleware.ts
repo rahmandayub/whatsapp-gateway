@@ -37,15 +37,17 @@ const apiKeyAuth = (req: Request, res: Response, next: NextFunction) => {
         const apiKeyBuffer = Buffer.from(apiKey);
         const validApiKeyBuffer = Buffer.from(validApiKey);
 
-        if (apiKeyBuffer.length !== validApiKeyBuffer.length ||
-            !crypto.timingSafeEqual(apiKeyBuffer, validApiKeyBuffer)) {
+        if (
+            apiKeyBuffer.length !== validApiKeyBuffer.length ||
+            !crypto.timingSafeEqual(apiKeyBuffer, validApiKeyBuffer)
+        ) {
             return res.status(401).json({
                 status: 'error',
                 message: 'Unauthorized: Invalid or missing API Key',
             });
         }
-    } catch (error) {
-         return res.status(401).json({
+    } catch {
+        return res.status(401).json({
             status: 'error',
             message: 'Unauthorized: Invalid or missing API Key',
         });

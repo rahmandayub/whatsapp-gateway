@@ -29,7 +29,9 @@ export const startSession = asyncHandler(
 export const getSessionStatus = asyncHandler(
     async (req: Request, res: Response) => {
         const { sessionId } = req.params;
-        const result = await whatsAppService.getSessionStatus(sessionId);
+        const result = await whatsAppService.getSessionStatus(
+            Array.isArray(sessionId) ? sessionId[0] : sessionId,
+        );
         if (!result) {
             throw new NotFoundError('Session not found');
         }
@@ -44,14 +46,18 @@ export const getSessions = asyncHandler(async (req: Request, res: Response) => {
 
 export const stopSession = asyncHandler(async (req: Request, res: Response) => {
     const { sessionId } = req.params;
-    const result = await whatsAppService.stopSession(sessionId);
+    const result = await whatsAppService.stopSession(
+        Array.isArray(sessionId) ? sessionId[0] : sessionId,
+    );
     res.json(result);
 });
 
 export const logoutSession = asyncHandler(
     async (req: Request, res: Response) => {
         const { sessionId } = req.params;
-        const result = await whatsAppService.logoutSession(sessionId);
+        const result = await whatsAppService.logoutSession(
+            Array.isArray(sessionId) ? sessionId[0] : sessionId,
+        );
         res.json(result);
     },
 );
@@ -59,7 +65,9 @@ export const logoutSession = asyncHandler(
 export const getSessionQR = asyncHandler(
     async (req: Request, res: Response) => {
         const { sessionId } = req.params;
-        const result = whatsAppService.getQRCode(sessionId);
+        const result = whatsAppService.getQRCode(
+            Array.isArray(sessionId) ? sessionId[0] : sessionId,
+        );
         if (!result) {
             throw new NotFoundError('Session not found');
         }
@@ -97,7 +105,9 @@ export const sendText = asyncHandler(async (req: Request, res: Response) => {
     const { to, message } = req.body;
 
     // Check if session is connected
-    const sessionStatus = await whatsAppService.getSessionStatus(sessionId);
+    const sessionStatus = await whatsAppService.getSessionStatus(
+        Array.isArray(sessionId) ? sessionId[0] : sessionId,
+    );
     if (!sessionStatus || sessionStatus.status !== 'CONNECTED') {
         throw new AppError('Session not active', 404, 'SESSION_NOT_ACTIVE');
     }
@@ -115,7 +125,9 @@ export const sendMedia = asyncHandler(async (req: Request, res: Response) => {
     const { sessionId } = req.params;
     const { to, type, mediaUrl, caption } = req.body;
 
-    const sessionStatus = await whatsAppService.getSessionStatus(sessionId);
+    const sessionStatus = await whatsAppService.getSessionStatus(
+        Array.isArray(sessionId) ? sessionId[0] : sessionId,
+    );
     if (!sessionStatus || sessionStatus.status !== 'CONNECTED') {
         throw new AppError('Session not active', 404, 'SESSION_NOT_ACTIVE');
     }
@@ -136,7 +148,9 @@ export const sendTemplate = asyncHandler(
         const { sessionId } = req.params;
         const { to, templateName, variables } = req.body;
 
-        const sessionStatus = await whatsAppService.getSessionStatus(sessionId);
+        const sessionStatus = await whatsAppService.getSessionStatus(
+            Array.isArray(sessionId) ? sessionId[0] : sessionId,
+        );
         if (!sessionStatus || sessionStatus.status !== 'CONNECTED') {
             throw new AppError('Session not active', 404, 'SESSION_NOT_ACTIVE');
         }
@@ -156,7 +170,7 @@ export const sendFile = asyncHandler(async (req: Request, res: Response) => {
     const { sessionId } = req.params;
     const { to } = req.body;
     // multer parses 'captions' field.
-    let { captions } = req.body;
+    const { captions } = req.body;
     const files = req.files as Express.Multer.File[];
 
     // Ensure cleanup helper
@@ -171,7 +185,9 @@ export const sendFile = asyncHandler(async (req: Request, res: Response) => {
         throw new ValidationError('Missing parameters: to, files');
     }
 
-    const sessionStatus = await whatsAppService.getSessionStatus(sessionId);
+    const sessionStatus = await whatsAppService.getSessionStatus(
+        Array.isArray(sessionId) ? sessionId[0] : sessionId,
+    );
     if (!sessionStatus || sessionStatus.status !== 'CONNECTED') {
         cleanupFiles();
         throw new AppError('Session not active', 404, 'SESSION_NOT_ACTIVE');
@@ -186,49 +202,40 @@ export const sendFile = asyncHandler(async (req: Request, res: Response) => {
     }
 
     const jobs = [];
-    try {
-        // First pass: Validation
-        for (const file of files) {
-            // Task 1.3.3: MIME type validation
-            const isValidSignature = await validateFileSignature(
-                file.path,
-                file.mimetype,
+    // First pass: Validation
+    for (const file of files) {
+        // Task 1.3.3: MIME type validation
+        const isValidSignature = await validateFileSignature(
+            file.path,
+            file.mimetype,
+        );
+        if (!isValidSignature) {
+            // Fail the whole batch before queueing anything
+            cleanupFiles();
+            throw new ValidationError(
+                `Security validation failed for file: ${file.originalname}. Content does not match extension/type.`,
             );
-            if (!isValidSignature) {
-                // Fail the whole batch before queueing anything
-                cleanupFiles();
-                throw new ValidationError(
-                    `Security validation failed for file: ${file.originalname}. Content does not match extension/type.`,
-                );
-            }
         }
+    }
 
-        // Second pass: Queueing
-        for (let i = 0; i < files.length; i++) {
-            const file = files[i];
-            const fileCaption = captionsArray[i] || '';
+    // Second pass: Queueing
+    for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const fileCaption = captionsArray[i] || '';
 
-            const job = await messageQueue.add('file', {
-                sessionId,
-                to,
-                path: file.path,
-                mimetype: file.mimetype,
-                originalname: file.originalname,
-                caption: fileCaption,
-            });
-            jobs.push({
-                file: file.originalname,
-                status: 'queued',
-                jobId: job.id,
-            });
-        }
-    } catch (error) {
-        // Catch errors during loop (e.g. queue add fail)
-        // If we threw ValidationError above, it goes here.
-        // We already cleaned up in the loop for validation error?
-        // No, we called cleanupFiles() then threw.
-        // Re-throw to let global handler catch it.
-        throw error;
+        const job = await messageQueue.add('file', {
+            sessionId,
+            to,
+            path: file.path,
+            mimetype: file.mimetype,
+            originalname: file.originalname,
+            caption: fileCaption,
+        });
+        jobs.push({
+            file: file.originalname,
+            status: 'queued',
+            jobId: job.id,
+        });
     }
 
     res.json({ status: 'success', jobs });
@@ -237,7 +244,9 @@ export const sendFile = asyncHandler(async (req: Request, res: Response) => {
 export const getMessageLog = asyncHandler(
     async (req: Request, res: Response) => {
         const { sessionId } = req.params;
-        const log = await whatsAppService.getMessageLog(sessionId || null);
+        const log = await whatsAppService.getMessageLog(
+            Array.isArray(sessionId) ? sessionId[0] : sessionId || null,
+        );
         res.json({ status: 'success', messages: log });
     },
 );

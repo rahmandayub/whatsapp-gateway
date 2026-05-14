@@ -41,7 +41,9 @@ export class ConnectionHandler {
         }
 
         if (connection === 'close') {
-            const error = lastDisconnect?.error as any; // Type casting for Boom
+            const error = lastDisconnect?.error as {
+                output?: { statusCode?: number };
+            };
             const statusCode = error?.output?.statusCode;
             const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
 
@@ -71,7 +73,9 @@ export class ConnectionHandler {
             }
         } else if (connection === 'open') {
             logger.info({ sessionId }, 'Connected');
-            const waId = sessionData.sock.user?.id;
+            const waId = (
+                sessionData.sock as unknown as { user?: { id?: string } }
+            )?.user?.id;
 
             sessionData.status = 'CONNECTED';
             sessionData.qr = null;

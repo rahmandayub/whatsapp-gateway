@@ -25,22 +25,28 @@ describe('MessageLogRepository', () => {
             recipient: '123',
             message_type: 'text',
             content_preview: 'hello',
-            status: 'sent'
+            status: 'sent',
         };
 
         await repo.create(logData);
 
-        expect(pool.query).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO message_logs'), expect.any(Array));
+        expect(pool.query).toHaveBeenCalledWith(
+            expect.stringContaining('INSERT INTO message_logs'),
+            expect.any(Array),
+        );
     });
 
     it('should find logs by session id', async () => {
-        (pool.query as any).mockResolvedValue({
-            rows: [{ id: 1, session_id: 'test', content_preview: 'hello' }]
+        (pool.query as ReturnType<typeof vi.fn>).mockResolvedValue({
+            rows: [{ id: 1, session_id: 'test', content_preview: 'hello' }],
         });
 
         const logs = await repo.findBySessionId('test');
         expect(logs.length).toBe(1);
         expect(logs[0].content_preview).toBe('hello');
-        expect(pool.query).toHaveBeenCalledWith(expect.stringContaining('SELECT * FROM message_logs'), ['test', 50, 0]);
+        expect(pool.query).toHaveBeenCalledWith(
+            expect.stringContaining('SELECT * FROM message_logs'),
+            ['test', 50, 0],
+        );
     });
 });

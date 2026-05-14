@@ -9,14 +9,21 @@ export class MessageSender {
     private getSession(sessionId: string) {
         const session = this.sessionManager.getSession(sessionId);
         if (!session) {
-            throw new AppError('Session not found or not active', 404, 'SESSION_NOT_FOUND');
+            throw new AppError(
+                'Session not found or not active',
+                404,
+                'SESSION_NOT_FOUND',
+            );
         }
         return session;
     }
 
     async sendText(sessionId: string, to: string, text: string) {
         const session = this.getSession(sessionId);
-        return await session.sock.sendMessage(to, { text });
+        const sock = session.sock as unknown as {
+            sendMessage: (to: string, content: unknown) => Promise<unknown>;
+        };
+        return await sock.sendMessage(to, { text });
     }
 
     async sendMedia(
@@ -24,22 +31,25 @@ export class MessageSender {
         to: string,
         type: 'image' | 'video' | 'document',
         mediaUrl: string,
-        caption?: string
+        caption?: string,
     ) {
         const session = this.getSession(sessionId);
         const content = {
             [type]: { url: mediaUrl },
-            caption
+            caption,
         } as unknown as AnyMessageContent;
 
-        return await session.sock.sendMessage(to, content);
+        const sock = session.sock as unknown as {
+            sendMessage: (to: string, content: unknown) => Promise<unknown>;
+        };
+        return await sock.sendMessage(to, content);
     }
 
     async sendFile(
         sessionId: string,
         to: string,
-        fileObj: { path: string, mimetype: string, originalname: string }, // Minimal file interface
-        caption?: string
+        fileObj: { path: string; mimetype: string; originalname: string }, // Minimal file interface
+        caption?: string,
     ) {
         const session = this.getSession(sessionId);
         const buffer = await fs.promises.readFile(fileObj.path);
@@ -58,10 +68,13 @@ export class MessageSender {
                 document: buffer,
                 caption,
                 mimetype: mime,
-                fileName: fileObj.originalname
+                fileName: fileObj.originalname,
             };
         }
 
-        return await session.sock.sendMessage(to, content);
+        const sock = session.sock as unknown as {
+            sendMessage: (to: string, content: unknown) => Promise<unknown>;
+        };
+        return await sock.sendMessage(to, content);
     }
 }

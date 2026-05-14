@@ -16,13 +16,13 @@ vi.mock('../../services/whatsappService.js', () => ({
         stopSession: vi.fn(),
         logoutSession: vi.fn(),
         // Add other methods as needed or use partial mock
-    }
+    },
 }));
 
 vi.mock('../../queues/messageQueue.js', () => ({
     messageQueue: {
-        add: vi.fn().mockResolvedValue({ id: 'job_123' })
-    }
+        add: vi.fn().mockResolvedValue({ id: 'job_123' }),
+    },
 }));
 
 describe('Integration: File Upload', () => {
@@ -33,14 +33,18 @@ describe('Integration: File Upload', () => {
         app = express();
         app.use(express.json());
         // Mock auth middleware for test simplicity
-        app.use((req, res, next) => { next(); });
+        app.use((req, res, next) => {
+            next();
+        });
         app.use('/sessions', sessionRoutes);
         app.use(errorHandler);
 
         if (!fs.existsSync(testDir)) fs.mkdirSync(testDir);
 
         // Mock service status
-        (whatsAppService.getSessionStatus as any).mockResolvedValue({ status: 'CONNECTED' });
+        (
+            whatsAppService.getSessionStatus as ReturnType<typeof vi.fn>
+        ).mockResolvedValue({ status: 'CONNECTED' });
     });
 
     afterEach(() => {
@@ -51,7 +55,9 @@ describe('Integration: File Upload', () => {
     it('should accept valid PNG file', async () => {
         // Create a real small PNG file for upload
         const pngPath = path.join(testDir, 'valid.png');
-        const pngHeader = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+        const pngHeader = Buffer.from([
+            0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+        ]);
         fs.writeFileSync(pngPath, pngHeader);
 
         const response = await request(app)
@@ -69,7 +75,7 @@ describe('Integration: File Upload', () => {
     it('should reject file with wrong extension/content', async () => {
         // Create a "PNG" that is actually JPEG
         const fakePngPath = path.join(testDir, 'fake.png');
-        const jpegHeader = Buffer.from([0xFF, 0xD8, 0xFF]);
+        const jpegHeader = Buffer.from([0xff, 0xd8, 0xff]);
         fs.writeFileSync(fakePngPath, jpegHeader);
 
         const response = await request(app)

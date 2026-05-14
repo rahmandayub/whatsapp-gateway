@@ -11,44 +11,59 @@ interface Template {
 
 export class TemplateRepository {
     async findByName(name: string): Promise<Template | null> {
-        const result = await pool.query('SELECT * FROM templates WHERE name = $1', [name]);
+        const result = await pool.query(
+            'SELECT * FROM templates WHERE name = $1',
+            [name],
+        );
         return result.rows[0] || null;
     }
 
     async findAll(): Promise<Template[]> {
-        const result = await pool.query('SELECT * FROM templates ORDER BY created_at DESC');
+        const result = await pool.query(
+            'SELECT * FROM templates ORDER BY created_at DESC',
+        );
         return result.rows;
     }
 
-    async create(data: { name: string; content: string; language?: string; category?: string }): Promise<Template> {
+    async create(data: {
+        name: string;
+        content: string;
+        language?: string;
+        category?: string;
+    }): Promise<Template> {
         const { name, content, language = 'en', category } = data;
         const result = await pool.query(
             'INSERT INTO templates (name, content, language, category) VALUES ($1, $2, $3, $4) RETURNING *',
-            [name, content, language, category]
+            [name, content, language, category],
         );
         return result.rows[0];
     }
 
-    async update(name: string, data: { content?: string; language?: string; category?: string }): Promise<Template | null> {
+    async update(
+        name: string,
+        data: { content?: string; language?: string; category?: string },
+    ): Promise<Template | null> {
         const { content, language, category } = data;
 
         // Build dynamic query
         const updates: string[] = [];
-        const values: any[] = [name];
-        let idx = 2;
+        const values: unknown[] = [name];
+        const fields: { key: string; value: unknown }[] = [];
 
         if (content !== undefined) {
-            updates.push(`content = $${idx++}`);
-            values.push(content);
+            fields.push({ key: 'content', value: content });
         }
         if (language !== undefined) {
-            updates.push(`language = $${idx++}`);
-            values.push(language);
+            fields.push({ key: 'language', value: language });
         }
         if (category !== undefined) {
-            updates.push(`category = $${idx++}`);
-            values.push(category);
+            fields.push({ key: 'category', value: category });
         }
+
+        fields.forEach((field, index) => {
+            updates.push(`${field.key} = $${index + 2}`);
+            values.push(field.value);
+        });
 
         if (updates.length === 0) return this.findByName(name);
 
@@ -58,7 +73,10 @@ export class TemplateRepository {
     }
 
     async delete(name: string): Promise<boolean> {
-        const result = await pool.query('DELETE FROM templates WHERE name = $1', [name]);
+        const result = await pool.query(
+            'DELETE FROM templates WHERE name = $1',
+            [name],
+        );
         return (result.rowCount ?? 0) > 0;
     }
 }

@@ -10,7 +10,7 @@ const swaggerDocument = yaml.load(
         path.join(process.cwd(), 'src', 'docs', 'openapi.yaml'),
         'utf8',
     ),
-) as any;
+) as Record<string, unknown>;
 
 router.use('/', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 

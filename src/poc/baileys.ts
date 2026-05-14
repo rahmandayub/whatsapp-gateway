@@ -13,7 +13,7 @@ async function connectToWhatsApp(): Promise<void> {
         await useMultiFileAuthState('auth_info_baileys');
 
     const sock = makeWASocket({
-        logger: pino({ level: 'silent' }) as any,
+        logger: pino({ level: 'silent' }) as pino.Logger,
         printQRInTerminal: false,
         auth: state,
     });

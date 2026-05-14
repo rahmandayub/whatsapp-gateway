@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import express, { Request, Response, NextFunction } from 'express';
+import { describe, it, expect, beforeEach } from 'vitest';
+import express from 'express';
 import request from 'supertest';
 import { errorHandler } from '../../middlewares/errorHandler.js';
 import { AppError, NotFoundError } from '../../errors/AppError.js';
@@ -16,7 +16,8 @@ describe('Error Handling & Request ID', () => {
 
     it('should assign a request ID', async () => {
         app.get('/test-id', (req, res) => {
-            res.json({ id: req.id });
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            res.json({ id: (req as any).id || 'no-id' });
         });
 
         const response = await request(app).get('/test-id');
@@ -27,7 +28,8 @@ describe('Error Handling & Request ID', () => {
 
     it('should use provided request ID header', async () => {
         app.get('/test-id', (req, res) => {
-            res.json({ id: req.id });
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            res.json({ id: (req as any).id || 'no-id' });
         });
 
         const customId = 'custom-uuid-123';
@@ -46,11 +48,13 @@ describe('Error Handling & Request ID', () => {
 
         const response = await request(app).get('/error');
         expect(response.status).toBe(400);
-        expect(response.body).toEqual(expect.objectContaining({
-            status: 'fail',
-            message: 'Custom Error',
-            code: 'CUSTOM_CODE'
-        }));
+        expect(response.body).toEqual(
+            expect.objectContaining({
+                status: 'fail',
+                message: 'Custom Error',
+                code: 'CUSTOM_CODE',
+            }),
+        );
         expect(response.body.requestId).toBeDefined();
     });
 
@@ -62,11 +66,13 @@ describe('Error Handling & Request ID', () => {
 
         const response = await request(app).get('/unexpected');
         expect(response.status).toBe(500);
-        expect(response.body).toEqual(expect.objectContaining({
-            status: 'error',
-            message: 'Internal Server Error',
-            code: 'INTERNAL_SERVER_ERROR'
-        }));
+        expect(response.body).toEqual(
+            expect.objectContaining({
+                status: 'error',
+                message: 'Internal Server Error',
+                code: 'INTERNAL_SERVER_ERROR',
+            }),
+        );
     });
 
     it('should handle NotFoundError', async () => {

@@ -17,7 +17,7 @@ export const messageWorker = new Worker(
 
         try {
             switch (type) {
-                case 'text':
+                case 'text': {
                     const { message, to } = job.data;
                     await whatsAppService.sendTextMessage(
                         sessionId,
@@ -25,8 +25,9 @@ export const messageWorker = new Worker(
                         message,
                     );
                     break;
+                }
 
-                case 'media':
+                case 'media': {
                     const { type: mediaType, mediaUrl, caption } = job.data;
                     await whatsAppService.sendMediaMessage(
                         sessionId,
@@ -36,8 +37,9 @@ export const messageWorker = new Worker(
                         caption,
                     );
                     break;
+                }
 
-                case 'file':
+                case 'file': {
                     // Reconstruct file object roughly if needed, or pass path directly
                     // Since we can't pass Multer file object easily through Redis (buffer issue),
                     // we should pass the path and have the service read it.
@@ -62,8 +64,9 @@ export const messageWorker = new Worker(
                     // For now, let's leave cleanup to a separate mechanism or assume service handles it if transient.
                     // Actually, the original controller deleted it immediately. We need to KEEP it until job done.
                     break;
+                }
 
-                case 'template':
+                case 'template': {
                     const { templateName, variables } = job.data;
                     await whatsAppService.sendTemplateMessage(
                         sessionId,
@@ -72,14 +75,17 @@ export const messageWorker = new Worker(
                         variables,
                     );
                     break;
+                }
 
                 default:
                     throw new Error(`Unknown message type: ${type}`);
             }
             logger.info(`[Job ${job.id}] Completed`);
             return { status: 'success' };
-        } catch (error: any) {
-            logger.error(`[Job ${job.id}] Failed: ${error.message}`);
+        } catch (error: unknown) {
+            logger.error(
+                `[Job ${job.id}] Failed: ${error instanceof Error ? error.message : String(error)}`,
+            );
             throw error; // Triggers retry
         }
     },
@@ -101,7 +107,7 @@ messageWorker.on('completed', (job) => {
     }
 });
 
-messageWorker.on('failed', (job, err) => {
+messageWorker.on('failed', (job, _err) => {
     // Verify strictly that job is not undefined
     if (
         job &&

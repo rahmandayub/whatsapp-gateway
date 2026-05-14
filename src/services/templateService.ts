@@ -13,16 +13,6 @@ interface TemplateUpdateData {
     category?: string;
 }
 
-interface Template {
-    id: number;
-    name: string;
-    content: string;
-    language: string;
-    category?: string; // Repository returns category as optional/string
-    created_at: Date;
-    updated_at?: Date; // Repository might not return updated_at explicitly in my interface yet, but DB has it.
-}
-
 const templateRepo = new TemplateRepository();
 
 const createTemplate = async (data: TemplateData) => {
@@ -49,7 +39,10 @@ const deleteTemplate = async (name: string) => {
     return existing; // Return deleted object to maintain interface compatibility
 };
 
-const renderTemplate = (template: { content: string }, variables: Record<string, string> = {}): string => {
+const renderTemplate = (
+    template: { content: string },
+    variables: Record<string, string> = {},
+): string => {
     let rendered = template.content;
     for (const [key, value] of Object.entries(variables)) {
         // Replace {{key}} with value, globally

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { validateFileSignature } from '../../utils/fileValidation.js';
 import fs from 'fs';
 import path from 'path';
@@ -21,7 +21,9 @@ describe('File Validation', () => {
 
     it('should validate PNG file correctly', async () => {
         // PNG Magic number: 89 50 4E 47 0D 0A 1A 0A
-        const pngHeader = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+        const pngHeader = Buffer.from([
+            0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+        ]);
         const filepath = await createTestFile('test.png', pngHeader);
 
         const isValid = await validateFileSignature(filepath, 'image/png');
@@ -30,7 +32,7 @@ describe('File Validation', () => {
 
     it('should reject file with mismatched extension and content', async () => {
         // JPEG Header: FF D8 FF
-        const jpegHeader = Buffer.from([0xFF, 0xD8, 0xFF]);
+        const jpegHeader = Buffer.from([0xff, 0xd8, 0xff]);
         const filepath = await createTestFile('fake_png.png', jpegHeader);
 
         // We claim it's PNG, but it's JPEG

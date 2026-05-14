@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import express, { Request, Response, NextFunction } from 'express';
+import express, { Request, Response } from 'express';
 import request from 'supertest';
 import apiKeyAuth from '../../middlewares/authMiddleware.js';
 
@@ -41,8 +41,7 @@ describe('Auth Middleware', () => {
     it('should return 401 if x-api-key header is missing', async () => {
         process.env.API_KEY = 'secret-key-123';
 
-        const response = await request(app)
-            .get('/test');
+        const response = await request(app).get('/test');
 
         expect(response.status).toBe(401);
         expect(response.body.message).toContain('Invalid or missing API Key');
@@ -76,6 +75,8 @@ describe('Auth Middleware', () => {
             .set('x-api-key', 'short');
 
         expect(response.status).toBe(401);
-        expect(response.body.message).toBe('Unauthorized: Invalid API Key format');
+        expect(response.body.message).toBe(
+            'Unauthorized: Invalid API Key format',
+        );
     });
 });

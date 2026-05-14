@@ -9,15 +9,19 @@ const createTemplate = async (req: Request, res: Response) => {
             status: 'success',
             data: { template },
         });
-    } catch (error: any) {
-        if (error.code === '23505') {
+    } catch (error: unknown) {
+        if (
+            error instanceof Error &&
+            'code' in error &&
+            error.code === '23505'
+        ) {
             // Unique violation
             return res.status(409).json({
                 status: 'error',
                 message: 'Template with this name already exists',
             });
         }
-        logger.error('Error creating template:', error);
+        logger.error({ err: error }, 'Error creating template');
         res.status(500).json({
             status: 'error',
             message: 'Failed to create template',
@@ -32,8 +36,8 @@ const getTemplates = async (req: Request, res: Response) => {
             status: 'success',
             data: { templates },
         });
-    } catch (error: any) {
-        logger.error('Error fetching templates:', error);
+    } catch (error: unknown) {
+        logger.error({ err: error }, 'Error fetching templates');
         res.status(500).json({
             status: 'error',
             message: 'Failed to fetch templates',
@@ -44,7 +48,9 @@ const getTemplates = async (req: Request, res: Response) => {
 const getTemplate = async (req: Request, res: Response) => {
     try {
         const { name } = req.params;
-        const template = await templateService.getTemplateByName(name);
+        const template = await templateService.getTemplateByName(
+            Array.isArray(name) ? name[0] : name,
+        );
         if (!template) {
             return res.status(404).json({
                 status: 'error',
@@ -55,8 +61,8 @@ const getTemplate = async (req: Request, res: Response) => {
             status: 'success',
             data: { template },
         });
-    } catch (error: any) {
-        logger.error('Error fetching template:', error);
+    } catch (error: unknown) {
+        logger.error({ err: error }, 'Error fetching template');
         res.status(500).json({
             status: 'error',
             message: 'Failed to fetch template',
@@ -67,7 +73,10 @@ const getTemplate = async (req: Request, res: Response) => {
 const updateTemplate = async (req: Request, res: Response) => {
     try {
         const { name } = req.params;
-        const template = await templateService.updateTemplate(name, req.body);
+        const template = await templateService.updateTemplate(
+            Array.isArray(name) ? name[0] : name,
+            req.body,
+        );
         if (!template) {
             return res.status(404).json({
                 status: 'error',
@@ -78,8 +87,8 @@ const updateTemplate = async (req: Request, res: Response) => {
             status: 'success',
             data: { template },
         });
-    } catch (error: any) {
-        logger.error('Error updating template:', error);
+    } catch (error: unknown) {
+        logger.error({ err: error }, 'Error updating template');
         res.status(500).json({
             status: 'error',
             message: 'Failed to update template',
@@ -90,7 +99,9 @@ const updateTemplate = async (req: Request, res: Response) => {
 const deleteTemplate = async (req: Request, res: Response) => {
     try {
         const { name } = req.params;
-        const template = await templateService.deleteTemplate(name);
+        const template = await templateService.deleteTemplate(
+            Array.isArray(name) ? name[0] : name,
+        );
         if (!template) {
             return res.status(404).json({
                 status: 'error',
@@ -101,8 +112,8 @@ const deleteTemplate = async (req: Request, res: Response) => {
             status: 'success',
             message: 'Template deleted successfully',
         });
-    } catch (error: any) {
-        logger.error('Error deleting template:', error);
+    } catch (error: unknown) {
+        logger.error({ err: error }, 'Error deleting template');
         res.status(500).json({
             status: 'error',
             message: 'Failed to delete template',

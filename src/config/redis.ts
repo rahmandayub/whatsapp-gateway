@@ -15,7 +15,7 @@ const redisClient = createClient({
     url: `redis://${redisConfig.password ? `:${redisConfig.password}@` : ''}${redisConfig.host}:${redisConfig.port}`,
 });
 
-redisClient.on('error', (err: any) => logger.error('Redis Client Error', err));
+redisClient.on('error', (err) => logger.error({ err }, 'Redis Client Error'));
 redisClient.on('connect', () => logger.info('Redis Client Connected'));
 
 // We don't necessarily need to connect this client immediately if we just use it for config export

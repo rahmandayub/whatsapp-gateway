@@ -29,13 +29,13 @@ export const validateWebhookUrl = async (url: string): Promise<boolean> => {
             if (isPrivateIp(address)) {
                 return false;
             }
-        } catch (e) {
+        } catch {
             // DNS lookup failed - invalid domain
             return false;
         }
 
         return true;
-    } catch (e) {
+    } catch {
         // Invalid URL format
         return false;
     }
@@ -68,7 +68,8 @@ const isPrivateIp = (ip: string): boolean => {
 
     // IPv6 checks (basic)
     if (ip === '::1') return true;
-    if (ip.toLowerCase().startsWith('fc') || ip.toLowerCase().startsWith('fd')) return true; // Unique Local Address
+    if (ip.toLowerCase().startsWith('fc') || ip.toLowerCase().startsWith('fd'))
+        return true; // Unique Local Address
     if (ip.toLowerCase().startsWith('fe80')) return true; // Link-local
 
     return false;

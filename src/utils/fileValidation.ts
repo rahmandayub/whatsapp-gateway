@@ -1,12 +1,11 @@
 import { fileTypeFromBuffer } from 'file-type';
 import fs from 'fs';
 
-export const validateFileSignature = async (filePath: string, claimedMimeType: string): Promise<boolean> => {
+export const validateFileSignature = async (
+    filePath: string,
+    claimedMimeType: string,
+): Promise<boolean> => {
     try {
-        const fileBuffer = await fs.promises.readFile(filePath);
-        // We only need the first few bytes, but file-type handles buffers well.
-        // Reading the whole file might be heavy for large files, let's read a chunk.
-
         // Read first 4100 bytes (usually enough for magic numbers)
         const fd = await fs.promises.open(filePath, 'r');
         const buffer = Buffer.alloc(4100);
@@ -36,11 +35,19 @@ export const validateFileSignature = async (filePath: string, claimedMimeType: s
         if (claimedMimeType === type.mime) return true;
 
         // Specific allowances
-        if (claimedMimeType === 'audio/mpeg' && type.mime === 'audio/mpeg') return true;
+        if (claimedMimeType === 'audio/mpeg' && type.mime === 'audio/mpeg')
+            return true;
 
         // Microsoft Office files often detected as 'application/x-cfb' or zip
-        if (claimedMimeType.includes('msword') || claimedMimeType.includes('officedocument')) {
-             if (type.mime === 'application/x-cfb' || type.mime === 'application/zip') return true;
+        if (
+            claimedMimeType.includes('msword') ||
+            claimedMimeType.includes('officedocument')
+        ) {
+            if (
+                type.mime === 'application/x-cfb' ||
+                type.mime === 'application/zip'
+            )
+                return true;
         }
 
         return false;

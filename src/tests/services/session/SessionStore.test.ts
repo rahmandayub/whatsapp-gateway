@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { SessionStore } from '../../../services/session/SessionStore.js';
 import { SessionData } from '../../../types/session.types.js';
 
@@ -13,7 +13,7 @@ describe('SessionStore', () => {
         const sessionData: SessionData = {
             sock: {},
             status: 'CONNECTED',
-            reconnectAttempts: 0
+            reconnectAttempts: 0,
         };
         store.set('test', sessionData);
         expect(store.get('test')).toBe(sessionData);
@@ -24,7 +24,7 @@ describe('SessionStore', () => {
         const sessionData: SessionData = {
             sock: {},
             status: 'CONNECTED',
-            reconnectAttempts: 0
+            reconnectAttempts: 0,
         };
         store.set('test', sessionData);
         store.delete('test');
@@ -32,8 +32,8 @@ describe('SessionStore', () => {
     });
 
     it('should return all sessions', () => {
-        store.set('1', { status: 'CONNECTED' } as any);
-        store.set('2', { status: 'CONNECTING' } as any);
+        store.set('1', { status: 'CONNECTED' } as SessionData);
+        store.set('2', { status: 'CONNECTING' } as SessionData);
         expect(store.getAll().length).toBe(2);
     });
 });

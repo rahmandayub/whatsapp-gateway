@@ -25,7 +25,7 @@ export const webhookWorker = new Worker<WebhookJobData>(
                 },
                 body: JSON.stringify({
                     event,
-                    ...data,
+                    ...(data as Record<string, unknown>),
                     timestamp,
                 }),
             });
@@ -34,13 +34,20 @@ export const webhookWorker = new Worker<WebhookJobData>(
                 // If 5xx or 429, throw error to trigger retry.
                 // If 4xx (except 429), maybe don't retry?
                 // For now, let's retry on all non-2xx to ensure delivery if possible, or fail eventually.
-                const responseBody = await response.text().catch(() => 'No body');
-                throw new Error(`Webhook failed with status ${response.status}: ${responseBody}`);
+                const responseBody = await response
+                    .text()
+                    .catch(() => 'No body');
+                throw new Error(
+                    `Webhook failed with status ${response.status}: ${responseBody}`,
+                );
             }
 
             logger.info(logContext, 'Webhook sent successfully');
-        } catch (error: any) {
-            logger.error({ ...logContext, err: error }, 'Webhook delivery failed');
+        } catch (error: unknown) {
+            logger.error(
+                { ...logContext, err: error },
+                'Webhook delivery failed',
+            );
             throw error; // Triggers BullMQ retry
         }
     },
@@ -49,13 +56,16 @@ export const webhookWorker = new Worker<WebhookJobData>(
         concurrency: 10, // Adjust based on load
         limiter: {
             max: 50, // Max 50 webhooks per second (global for this worker)
-            duration: 1000
-        }
+            duration: 1000,
+        },
     },
 );
 
 webhookWorker.on('failed', (job, err) => {
-    logger.error({ jobId: job?.id, err }, 'Webhook job failed permanently (or after attempt)');
+    logger.error(
+        { jobId: job?.id, err },
+        'Webhook job failed permanently (or after attempt)',
+    );
 });
 
 webhookWorker.on('error', (err) => {

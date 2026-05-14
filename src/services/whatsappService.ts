@@ -14,7 +14,7 @@ class WhatsAppServiceBridge {
     public sessionManager: SessionManager;
     public messageSender: MessageSender;
     public webhookDispatcher: WebhookDispatcher;
-    private messageLog: any[] = []; // Temporary log until DB log phase
+    private messageLog: unknown[] = []; // Temporary log until DB log phase
 
     constructor() {
         this.sessionManager = new SessionManager();
@@ -75,7 +75,7 @@ class WhatsAppServiceBridge {
     async sendFileMessage(
         sessionId: string,
         to: string,
-        fileObj: any,
+        fileObj: Express.Multer.File,
         caption?: string,
     ) {
         return this.messageSender.sendFile(sessionId, to, fileObj, caption);

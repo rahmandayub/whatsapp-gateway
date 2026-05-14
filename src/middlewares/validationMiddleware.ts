@@ -12,18 +12,24 @@ const urlValidator = async (value: string, helpers: CustomHelpers) => {
     return value;
 };
 
-const validate = (schema: Schema) => async (req: Request, res: Response, next: NextFunction) => {
-    try {
-        const value = await schema.validateAsync(req.body);
-        req.body = value; // Update body with sanitized/validated values
-        next();
-    } catch (error: any) {
-        return res.status(400).json({
-            status: 'error',
-            message: error.details[0].message,
-        });
-    }
-};
+const validate =
+    (schema: Schema) =>
+    async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const value = await schema.validateAsync(req.body);
+            req.body = value; // Update body with sanitized/validated values
+            next();
+        } catch (error: unknown) {
+            return res.status(400).json({
+                status: 'error',
+                message:
+                    error instanceof Error && 'details' in error
+                        ? (error as { details: [{ message: string }] })
+                              .details[0].message
+                        : 'Validation error',
+            });
+        }
+    };
 
 const schemas = {
     startSession: Joi.object({
