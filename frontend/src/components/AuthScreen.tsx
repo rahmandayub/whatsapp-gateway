@@ -1,8 +1,10 @@
 import { useState } from 'react';
-import { useAuth } from '../context/AuthContext';
 
-export default function AuthScreen() {
-    const { login } = useAuth();
+export default function AuthScreen({
+    onLogin,
+}: {
+    onLogin: (key: string) => void;
+}) {
     const [inputKey, setInputKey] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
@@ -17,7 +19,7 @@ export default function AuthScreen() {
                 headers: { 'x-api-key': inputKey.trim() },
             });
             if (res.ok) {
-                login(inputKey.trim());
+                onLogin(inputKey.trim());
             } else if (res.status === 401 || res.status === 403) {
                 setError('Invalid API Key.');
             } else {

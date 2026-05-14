@@ -52,24 +52,25 @@ export class ConnectionHandler {
                 'Connection closed',
             );
 
-            // Clean up memory
-            this.sessionStore.delete(sessionId);
+            // Get current attempts before potential deletion
+            const currentAttempts = sessionData?.reconnectAttempts || 0;
 
             if (shouldReconnect) {
-                await this.handleReconnect(
-                    sessionId,
-                    sessionData.reconnectAttempts,
-                );
+                await this.handleReconnect(sessionId, currentAttempts);
             } else {
+                // Only delete if not reconnecting
+                this.sessionStore.delete(sessionId);
                 await this.sessionRepo.updateStatus(sessionId, 'DISCONNECTED');
-                await this.webhookDispatcher.dispatch(
-                    sessionData.webhookUrl,
-                    'connection_update',
-                    {
-                        sessionId,
-                        status: 'DISCONNECTED',
-                    },
-                );
+                if (sessionData?.webhookUrl) {
+                    await this.webhookDispatcher.dispatch(
+                        sessionData.webhookUrl,
+                        'connection_update',
+                        {
+                            sessionId,
+                            status: 'DISCONNECTED',
+                        },
+                    );
+                }
             }
         } else if (connection === 'open') {
             logger.info({ sessionId }, 'Connected');
@@ -125,21 +126,16 @@ export class ConnectionHandler {
         );
 
         setTimeout(async () => {
-            // Pass state back?
-            // We need to inform the SessionManager to start again with increased attempt count.
-            // But SessionManager.startSession usually resets count.
-            // The callback handles the restart logic.
-            // We need a way to increment the counter after restart.
+            try {
+                await this.reconnectCallback(sessionId);
 
-            // The simplest way is to pass the new count to the callback if it supports it,
-            // or let the callback handle retrieving/setting it.
-            // See SessionManager implementation (next).
-            await this.reconnectCallback(sessionId);
-
-            // After restart, update the attempt count in store
-            const newSession = this.sessionStore.get(sessionId);
-            if (newSession) {
-                newSession.reconnectAttempts = currentAttempts + 1;
+                // After restart, update the attempt count in store
+                const newSession = this.sessionStore.get(sessionId);
+                if (newSession) {
+                    newSession.reconnectAttempts = currentAttempts + 1;
+                }
+            } catch (error) {
+                logger.error({ sessionId, error }, 'Reconnection failed');
             }
         }, delay);
     }

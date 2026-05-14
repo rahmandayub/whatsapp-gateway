@@ -18,7 +18,7 @@ import SendMessageModal from './components/modals/SendMessageModal';
 import type { Template } from './types/api';
 
 function App() {
-    const { isAuthenticated } = useAuth();
+    const { isAuthenticated, login } = useAuth();
     const { addToast } = useToast();
 
     const [isLoading, setIsLoading] = useState(true);
@@ -123,7 +123,7 @@ function App() {
     if (!isAuthenticated) {
         return (
             <>
-                <AuthScreen />
+                <AuthScreen onLogin={login} />
                 <ToastContainer />
             </>
         );

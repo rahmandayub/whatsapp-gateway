@@ -30,7 +30,7 @@ export class SessionManager {
             this.sessionRepo,
             this.webhookDispatcher,
             async (sessionId) => {
-                await this.startSession(sessionId);
+                await this.startSession(sessionId, undefined);
             }, // Callback for reconnection
         );
     }
@@ -63,9 +63,13 @@ export class SessionManager {
             }
 
             if (this.sessionStore.has(sessionId)) {
+                const existingData = this.sessionStore.get(sessionId);
+                // Preserve reconnect attempts during reconnection
+                const reconnectAttempts = existingData?.reconnectAttempts || 0;
                 return {
                     status: 'already_active',
                     message: 'Session already active',
+                    reconnectAttempts,
                 };
             }
         } else {
@@ -85,12 +89,16 @@ export class SessionManager {
             auth: state,
         });
 
+        // Preserve reconnect attempts if session exists in store (reconnection)
+        const existingData = this.sessionStore.get(sessionId);
+        const reconnectAttempts = existingData?.reconnectAttempts || 0;
+
         this.sessionStore.set(sessionId, {
             sock,
             status: 'CONNECTING',
             webhookUrl,
             qr: null,
-            reconnectAttempts: 0,
+            reconnectAttempts,
         });
 
         sock.ev.on('creds.update', saveCreds);

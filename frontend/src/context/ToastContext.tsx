@@ -1,6 +1,6 @@
 import {
     createContext,
-    use,
+    useContext,
     useState,
     useCallback,
     type ReactNode,
@@ -43,14 +43,14 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     }, []);
 
     return (
-        <ToastContext value={{ toasts, addToast, removeToast }}>
+        <ToastContext.Provider value={{ toasts, addToast, removeToast }}>
             {children}
-        </ToastContext>
+        </ToastContext.Provider>
     );
 }
 
 export function useToast() {
-    const ctx = use(ToastContext);
+    const ctx = useContext(ToastContext);
     if (!ctx) throw new Error('useToast must be used within ToastProvider');
     return ctx;
 }

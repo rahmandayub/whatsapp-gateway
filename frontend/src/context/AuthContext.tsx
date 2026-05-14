@@ -1,6 +1,6 @@
 import {
     createContext,
-    use,
+    useContext,
     useState,
     useCallback,
     type ReactNode,
@@ -36,14 +36,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }, []);
 
     return (
-        <AuthContext value={{ apiKey, isAuthenticated, login, logout }}>
+        <AuthContext.Provider
+            value={{ apiKey, isAuthenticated, login, logout }}
+        >
             {children}
-        </AuthContext>
+        </AuthContext.Provider>
     );
 }
 
 export function useAuth() {
-    const ctx = use(AuthContext);
+    const ctx = useContext(AuthContext);
     if (!ctx) throw new Error('useAuth must be used within AuthProvider');
     return ctx;
 }

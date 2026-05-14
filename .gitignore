@@ -6,3 +6,6 @@ coverage
 dist
 node_modules
 temp_uploads/
+frontend/dist
+frontend/tsconfig.tsbuildinfo
+src/public
