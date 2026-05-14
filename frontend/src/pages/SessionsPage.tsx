@@ -68,10 +68,6 @@ function QRDialog({
         if (!res) return;
         if (res.qrImage) {
             setQrImage(res.qrImage);
-        } else if (res.qr) {
-            setQrImage(
-                `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(res.qr)}`,
-            );
         } else if (res.status === 'CONNECTED') {
             setIsConnected(true);
             toast.success('Session connected!');

@@ -2,8 +2,10 @@ import './config/env.js';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+import rateLimit from 'express-rate-limit';
 import cookieParser from 'cookie-parser';
+import fs from 'fs';
+import path from 'path';
 import { execSync } from 'child_process';
 import sessionRoutes from './routes/sessionRoutes.js';
 import templateRoutes from './routes/templateRoutes.js';
@@ -45,15 +47,6 @@ const apiLimiter = rateLimit({
     max: 3000,
     standardHeaders: true,
     legacyHeaders: false,
-    validate: { trustProxy: false },
-    keyGenerator: (req) => {
-        const forwarded = req.headers['x-forwarded-for'];
-        if (typeof forwarded === 'string') {
-            const ip = forwarded.split(',')[0].trim();
-            return ipKeyGenerator(ip);
-        }
-        return ipKeyGenerator(req.ip || 'unknown');
-    },
 });
 
 const publicLimiter = rateLimit({
@@ -100,8 +93,8 @@ app.use(metricsMiddleware);
 
 // Public Routes (with stricter rate limit)
 app.use('/health', publicLimiter, healthRoutes);
-app.use('/metrics', publicLimiter, metricsRoutes);
-app.use('/docs', publicLimiter, docsRoutes);
+app.use('/metrics', metricsRoutes);
+app.use('/docs', docsRoutes);
 
 // Admin routes (protected by adminAuth internally)
 app.use('/api/v1/admin', adminRoutes);
@@ -148,8 +141,49 @@ function startServer() {
         logger.info(`Server running on port ${PORT}`);
     });
 
-    process.on('SIGTERM', () => gracefulShutdown(server));
-    process.on('SIGINT', () => gracefulShutdown(server));
+    // Start temp file sweeper (cleans files older than 1 hour every 15 minutes)
+    const tempDir = process.env.UPLOAD_DIR
+        ? path.resolve(process.env.UPLOAD_DIR)
+        : path.resolve(process.cwd(), 'temp_uploads');
+    const SWEEP_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
+    const MAX_AGE_MS = 60 * 60 * 1000; // 1 hour
+
+    function sweepTempFiles() {
+        try {
+            if (!fs.existsSync(tempDir)) return;
+            const now = Date.now();
+            const entries = fs.readdirSync(tempDir);
+            let deleted = 0;
+            for (const entry of entries) {
+                const entryPath = path.join(tempDir, entry);
+                const stat = fs.statSync(entryPath);
+                if (stat.isFile() && now - stat.mtime.getTime() > MAX_AGE_MS) {
+                    fs.unlinkSync(entryPath);
+                    deleted++;
+                }
+            }
+            if (deleted > 0) {
+                logger.info(
+                    { deleted, dir: tempDir },
+                    'Temp file sweeper cleaned up old files',
+                );
+            }
+        } catch (err) {
+            logger.error({ err }, 'Temp file sweeper error');
+        }
+    }
+
+    sweepTempFiles();
+    const sweeperInterval = setInterval(sweepTempFiles, SWEEP_INTERVAL_MS);
+
+    process.on('SIGTERM', () => {
+        clearInterval(sweeperInterval);
+        gracefulShutdown(server);
+    });
+    process.on('SIGINT', () => {
+        clearInterval(sweeperInterval);
+        gracefulShutdown(server);
+    });
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

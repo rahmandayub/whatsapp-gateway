@@ -5,7 +5,6 @@ export interface AuthenticatedAdminRequest extends Request {
     admin?: boolean;
 }
 
-const MASTER_API_KEY = process.env.MASTER_API_KEY;
 const MASTER_API_KEY_HASH = process.env.MASTER_API_KEY_HASH;
 const JWT_SECRET = process.env.JWT_SECRET;
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME;
@@ -14,9 +13,6 @@ function verifyMasterKey(key: string): boolean {
     if (!key || key.length < 10) return false;
     if (MASTER_API_KEY_HASH) {
         return bcrypt.compareSync(key, MASTER_API_KEY_HASH);
-    }
-    if (MASTER_API_KEY) {
-        return key === MASTER_API_KEY;
     }
     return false;
 }

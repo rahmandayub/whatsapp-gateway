@@ -2,9 +2,14 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 
-export interface EnvValues {
-    [key: string]: string;
+export interface EnvEntry {
+    key: string;
+    value: string;
+    comment?: string;
+    blankLine?: boolean;
 }
+
+export type EnvValues = Record<string, string>;
 
 export function readExistingEnv(): EnvValues {
     const envPath = path.resolve(process.cwd(), '.env');
@@ -22,13 +27,21 @@ export function readExistingEnv(): EnvValues {
     return values;
 }
 
-export function writeEnv(values: EnvValues): void {
+export function writeEnv(entries: EnvEntry[]): void {
     const envPath = path.resolve(process.cwd(), '.env');
     const lines: string[] = [];
-    for (const [key, value] of Object.entries(values)) {
-        // Escape $ as $$ so Docker Compose doesn't treat it as variable interpolation
-        const escaped = value.replace(/\$/g, '$$$$');
-        lines.push(`${key}=${escaped}`);
+    for (const entry of entries) {
+        if (entry.comment) {
+            lines.push(`# ${entry.comment}`);
+        }
+        if (entry.key) {
+            // Escape $ as $$ so Docker Compose doesn't treat it as variable interpolation
+            const escaped = entry.value.replace(/\$/g, '$$$$');
+            lines.push(`${entry.key}=${escaped}`);
+        }
+        if (entry.blankLine) {
+            lines.push('');
+        }
     }
     fs.writeFileSync(envPath, lines.join('\n') + '\n', 'utf8');
 }

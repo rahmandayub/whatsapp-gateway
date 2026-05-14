@@ -1,1 +1,1 @@
-export declare function usePolling(callback: () => void, interval: number, enabled: boolean): void;
+export declare function usePolling(callback: () => Promise<void> | void, interval: number, enabled: boolean): void;

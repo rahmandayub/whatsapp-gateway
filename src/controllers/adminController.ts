@@ -9,6 +9,8 @@ import { MessageLogRepository } from '../repositories/MessageLogRepository.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../errors/AppError.js';
 import { logger } from '../utils/logger.js';
+import { decrypt } from '../utils/keyCrypto.js';
+import { logAudit } from '../utils/audit.js';
 
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME;
 const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH;
@@ -19,36 +21,17 @@ const auditRepo = new AuditLogRepository();
 const sessionRepo = new SessionRepository();
 const messageLogRepo = new MessageLogRepository();
 
-function getClientIp(req: Request): string {
-    const forwarded = req.headers['x-forwarded-for'];
-    if (typeof forwarded === 'string') return forwarded.split(',')[0].trim();
-    if (Array.isArray(forwarded)) return forwarded[0].trim();
-    return req.ip || '';
-}
+const DUMMY_HASH = bcrypt.hashSync('dummy', 10);
 
-async function logAudit(
-    actorType: string,
-    actorId: string,
-    action: string,
-    req: Request,
-    targetType?: string,
-    targetId?: string,
-    metadata?: Record<string, unknown>,
-) {
-    try {
-        await auditRepo.create({
-            actorType,
-            actorId,
-            action,
-            targetType: targetType ?? null,
-            targetId: targetId ?? null,
-            ip: getClientIp(req),
-            requestId: (req as unknown as { requestId?: string }).requestId,
-            metadata: metadata ?? null,
-        });
-    } catch (err) {
-        logger.error({ err }, 'Failed to write audit log');
-    }
+function timingSafeStringCompare(a: string, b: string): boolean {
+    const bufA = Buffer.from(a);
+    const bufB = Buffer.from(b);
+    const maxLen = Math.max(bufA.length, bufB.length);
+    const paddedA = Buffer.alloc(maxLen);
+    const paddedB = Buffer.alloc(maxLen);
+    paddedA.set(bufA);
+    paddedB.set(bufB);
+    return crypto.timingSafeEqual(paddedA, paddedB);
 }
 
 function verifyAdminPassword(password: string): boolean {
@@ -70,7 +53,17 @@ export const adminLogin = asyncHandler(async (req: Request, res: Response) => {
         );
     }
 
-    if (username !== ADMIN_USERNAME || !verifyAdminPassword(password)) {
+    const usernameMatch = ADMIN_USERNAME
+        ? timingSafeStringCompare(username, ADMIN_USERNAME)
+        : false;
+    if (!usernameMatch) {
+        // Burn time with dummy bcrypt compare to prevent timing attacks
+        bcrypt.compareSync(password, DUMMY_HASH);
+        await logAudit('admin', username, 'LOGIN_FAILED', req);
+        throw new AppError('Invalid credentials', 401, 'AUTH_FAILED');
+    }
+
+    if (!verifyAdminPassword(password)) {
         await logAudit('admin', username, 'LOGIN_FAILED', req);
         throw new AppError('Invalid credentials', 401, 'AUTH_FAILED');
     }
@@ -117,21 +110,34 @@ export const listApiKeys = asyncHandler(async (req: Request, res: Response) => {
             id: string;
             name: string;
             prefix: string;
-            full_key: string | null;
+            encrypted_key: string | null;
             created_at: Date;
             last_used_at: Date | null;
             revoked_at: Date | null;
             created_by: string;
-        }) => ({
-            id: k.id,
-            name: k.name,
-            prefix: k.prefix,
-            key: k.full_key,
-            created_at: k.created_at,
-            last_used_at: k.last_used_at,
-            revoked_at: k.revoked_at,
-            created_by: k.created_by,
-        }),
+        }) => {
+            let key: string | null = null;
+            if (k.encrypted_key) {
+                try {
+                    key = decrypt(k.encrypted_key);
+                } catch (err) {
+                    logger.error(
+                        { err, keyId: k.id },
+                        'Failed to decrypt API key',
+                    );
+                }
+            }
+            return {
+                id: k.id,
+                name: k.name,
+                prefix: k.prefix,
+                key,
+                created_at: k.created_at,
+                last_used_at: k.last_used_at,
+                revoked_at: k.revoked_at,
+                created_by: k.created_by,
+            };
+        },
     );
     res.json({ status: 'success', apiKeys: sanitized });
 });
@@ -229,7 +235,7 @@ export const regenerateApiKey = asyncHandler(
         const fullKey = `${prefix}.${rawKey}`;
         const hash = crypto.createHash('sha256').update(fullKey).digest('hex');
 
-        await apiKeyRepo.updateFullKey(id, fullKey, hash);
+        await apiKeyRepo.rotate(id, prefix, fullKey, hash);
 
         await logAudit(
             'admin',
@@ -265,11 +271,18 @@ export const getApiKeySessions = asyncHandler(
 export const listAuditLogs = asyncHandler(
     async (req: Request, res: Response) => {
         const limit = Math.min(
-            parseInt((req.query.limit as string) || '100', 10),
+            Math.max(
+                Number.isFinite(Number(req.query.limit))
+                    ? Number(req.query.limit)
+                    : 100,
+                1,
+            ),
             500,
         );
         const offset = Math.max(
-            parseInt((req.query.offset as string) || '0', 10),
+            Number.isFinite(Number(req.query.offset))
+                ? Number(req.query.offset)
+                : 0,
             0,
         );
         const logs = await auditRepo.findRecent(limit, offset);
@@ -280,11 +293,18 @@ export const listAuditLogs = asyncHandler(
 export const listMessageLogs = asyncHandler(
     async (req: Request, res: Response) => {
         const limit = Math.min(
-            parseInt((req.query.limit as string) || '100', 10),
+            Math.max(
+                Number.isFinite(Number(req.query.limit))
+                    ? Number(req.query.limit)
+                    : 100,
+                1,
+            ),
             500,
         );
         const offset = Math.max(
-            parseInt((req.query.offset as string) || '0', 10),
+            Number.isFinite(Number(req.query.offset))
+                ? Number(req.query.offset)
+                : 0,
             0,
         );
         const logs = await messageLogRepo.findAll(limit, offset);

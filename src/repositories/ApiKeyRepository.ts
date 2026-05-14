@@ -1,11 +1,12 @@
 import pool from '../config/database.js';
+import { encrypt } from '../utils/keyCrypto.js';
 
 export interface ApiKeyRecord {
     id: string;
     name: string;
     prefix: string;
     key_hash: string;
-    full_key: string | null;
+    encrypted_key: string | null;
     created_at: Date;
     last_used_at: Date | null;
     revoked_at: Date | null;
@@ -22,8 +23,9 @@ export class ApiKeyRepository {
     }
 
     async findByHash(keyHash: string): Promise<ApiKeyRecord | undefined> {
+        // Auth hot path: do not select encrypted_key to reduce attack surface
         const { rows } = await pool.query(
-            'SELECT * FROM api_keys WHERE key_hash = $1',
+            'SELECT id, name, prefix, key_hash, created_at, last_used_at, revoked_at, created_by FROM api_keys WHERE key_hash = $1',
             [keyHash],
         );
         return rows[0];
@@ -58,13 +60,14 @@ export class ApiKeyRepository {
         fullKey: string;
         createdBy: string;
     }): Promise<string> {
+        const encryptedKey = encrypt(data.fullKey);
         const { rows } = await pool.query(
-            'INSERT INTO api_keys (name, prefix, key_hash, full_key, created_by) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+            'INSERT INTO api_keys (name, prefix, key_hash, encrypted_key, created_by) VALUES ($1, $2, $3, $4, $5) RETURNING id',
             [
                 data.name,
                 data.prefix,
                 data.keyHash,
-                data.fullKey,
+                encryptedKey,
                 data.createdBy,
             ],
         );
@@ -78,14 +81,16 @@ export class ApiKeyRepository {
         );
     }
 
-    async updateFullKey(
+    async rotate(
         id: string,
+        prefix: string,
         fullKey: string,
         keyHash: string,
     ): Promise<void> {
+        const encryptedKey = encrypt(fullKey);
         await pool.query(
-            'UPDATE api_keys SET full_key = $1, key_hash = $2 WHERE id = $3',
-            [fullKey, keyHash, id],
+            'UPDATE api_keys SET prefix = $1, encrypted_key = $2, key_hash = $3 WHERE id = $4',
+            [prefix, encryptedKey, keyHash, id],
         );
     }
 

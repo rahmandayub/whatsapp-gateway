@@ -1,10 +1,8 @@
 import { Worker, Job } from 'bullmq';
 import { redisConfig } from '../config/redis.js';
 import whatsAppService from '../services/whatsappService.js';
-import pino from 'pino';
+import { logger } from '../utils/logger.js';
 import fs from 'fs';
-
-const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 
 export const messageWorker = new Worker(
     'whatsapp-message-queue',

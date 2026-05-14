@@ -2,6 +2,12 @@ import { Worker, Job } from 'bullmq';
 import { logger } from '../utils/logger.js';
 import { WebhookJobData } from '../types/webhook.types.js';
 import crypto from 'crypto';
+import dns from 'dns';
+import util from 'util';
+import { URL } from 'url';
+import { isPrivateIp } from '../utils/urlValidator.js';
+
+const lookup = util.promisify(dns.lookup);
 
 const connection = {
     host: process.env.REDIS_HOST || 'localhost',
@@ -10,6 +16,7 @@ const connection = {
 };
 
 const WEBHOOK_SIGNING_SECRET = process.env.WEBHOOK_SIGNING_SECRET;
+const WEBHOOK_ALLOW_HTTP = process.env.WEBHOOK_ALLOW_HTTP === 'true';
 
 function signPayload(payload: string): string | undefined {
     if (!WEBHOOK_SIGNING_SECRET) return undefined;
@@ -27,12 +34,32 @@ export const webhookWorker = new Worker<WebhookJobData>(
 
         logger.info(logContext, 'Processing webhook');
 
-        // Enforce HTTPS in production
-        if (
-            process.env.NODE_ENV === 'production' &&
-            !url.startsWith('https://')
-        ) {
-            logger.warn({ url }, 'Blocked HTTP webhook in production');
+        // Block HTTP unless explicitly allowed
+        if (url.startsWith('http://') && !WEBHOOK_ALLOW_HTTP) {
+            logger.warn(
+                { url },
+                'Blocked HTTP webhook (WEBHOOK_ALLOW_HTTP=false)',
+            );
+            return; // Do not retry
+        }
+
+        // SSRF defense: resolve hostname at connect-time to prevent DNS rebinding
+        let resolvedUrl: string;
+        try {
+            const parsed = new URL(url);
+            const { address } = await lookup(parsed.hostname);
+            if (isPrivateIp(address)) {
+                logger.warn(
+                    { url, resolvedIp: address },
+                    'Blocked webhook to private IP',
+                );
+                return; // Do not retry
+            }
+            // Replace hostname with resolved IP but keep original Host header
+            parsed.hostname = address;
+            resolvedUrl = parsed.toString();
+        } catch {
+            logger.warn({ url }, 'Webhook DNS resolution failed');
             return; // Do not retry
         }
 
@@ -48,12 +75,13 @@ export const webhookWorker = new Worker<WebhookJobData>(
             const controller = new AbortController();
             const timeout = setTimeout(() => controller.abort(), 30000); // 30s timeout
 
-            const response = await fetch(url, {
+            const response = await fetch(resolvedUrl, {
                 method: 'POST',
                 signal: controller.signal,
                 headers: {
                     'Content-Type': 'application/json',
                     'User-Agent': 'WhatsApp-Gateway/1.0',
+                    Host: new URL(url).hostname,
                     ...(requestId && { 'X-Request-ID': requestId }),
                     ...(signature && {
                         'X-Webhook-Signature': `sha256=${signature}`,

@@ -10,6 +10,7 @@ import {
     NotFoundError,
     ValidationError,
 } from '../errors/AppError.js';
+import { logAudit, getActorInfo, hashRecipient } from '../utils/audit.js';
 
 // Extend Request type for apiKey
 interface ApiKeyRequest extends Request {
@@ -78,6 +79,17 @@ export const startSession = asyncHandler(
             sessionName,
             webhookUrl,
         );
+
+        const { actorType, actorId } = getActorInfo(req);
+        logAudit(
+            actorType,
+            actorId,
+            'SESSION_START',
+            req,
+            'session',
+            result.sessionId as string,
+        ).catch(() => {});
+
         res.json(result);
     },
 );
@@ -109,16 +121,40 @@ export const getSessions = asyncHandler(
     },
 );
 
-export const stopSession = asyncHandler(async (req: Request, res: Response) => {
-    const sessionId = safeSessionId(req);
-    const result = await whatsAppService.stopSession(sessionId);
-    res.json(result);
-});
+export const stopSession = asyncHandler(
+    async (req: ApiKeyRequest, res: Response) => {
+        const sessionId = safeSessionId(req);
+        const result = await whatsAppService.stopSession(sessionId);
+
+        const { actorType, actorId } = getActorInfo(req);
+        logAudit(
+            actorType,
+            actorId,
+            'SESSION_STOP',
+            req,
+            'session',
+            sessionId,
+        ).catch(() => {});
+
+        res.json(result);
+    },
+);
 
 export const logoutSession = asyncHandler(
-    async (req: Request, res: Response) => {
+    async (req: ApiKeyRequest, res: Response) => {
         const sessionId = safeSessionId(req);
         const result = await whatsAppService.logoutSession(sessionId);
+
+        const { actorType, actorId } = getActorInfo(req);
+        logAudit(
+            actorType,
+            actorId,
+            'SESSION_LOGOUT',
+            req,
+            'session',
+            sessionId,
+        ).catch(() => {});
+
         res.json(result);
     },
 );
@@ -156,46 +192,79 @@ export const getSessionQR = asyncHandler(
     },
 );
 
-export const sendText = asyncHandler(async (req: Request, res: Response) => {
-    const sessionId = safeSessionId(req);
-    const { to, message } = req.body;
+export const sendText = asyncHandler(
+    async (req: ApiKeyRequest, res: Response) => {
+        const sessionId = safeSessionId(req);
+        const { to, message } = req.body;
 
-    const sessionStatus = await whatsAppService.getSessionStatus(sessionId);
-    if (!sessionStatus || sessionStatus.status !== 'CONNECTED') {
-        throw new AppError('Session not active', 404, 'SESSION_NOT_ACTIVE');
-    }
+        const sessionStatus = await whatsAppService.getSessionStatus(sessionId);
+        if (!sessionStatus || sessionStatus.status !== 'CONNECTED') {
+            throw new AppError('Session not active', 404, 'SESSION_NOT_ACTIVE');
+        }
 
-    const job = await messageQueue.add('text', {
-        sessionId,
-        to,
-        message,
-    });
+        const job = await messageQueue.add('text', {
+            sessionId,
+            to,
+            message,
+        });
 
-    res.json({ status: 'queued', jobId: job.id });
-});
+        const { actorType, actorId } = getActorInfo(req);
+        logAudit(
+            actorType,
+            actorId,
+            'MESSAGE_SEND_TEXT',
+            req,
+            'session',
+            sessionId,
+            {
+                recipientHash: hashRecipient(to),
+                messageLength: message?.length || 0,
+            },
+        ).catch(() => {});
 
-export const sendMedia = asyncHandler(async (req: Request, res: Response) => {
-    const sessionId = safeSessionId(req);
-    const { to, type, mediaUrl, caption } = req.body;
+        res.json({ status: 'queued', jobId: job.id });
+    },
+);
 
-    const sessionStatus = await whatsAppService.getSessionStatus(sessionId);
-    if (!sessionStatus || sessionStatus.status !== 'CONNECTED') {
-        throw new AppError('Session not active', 404, 'SESSION_NOT_ACTIVE');
-    }
+export const sendMedia = asyncHandler(
+    async (req: ApiKeyRequest, res: Response) => {
+        const sessionId = safeSessionId(req);
+        const { to, type, mediaUrl, caption } = req.body;
 
-    const job = await messageQueue.add('media', {
-        sessionId,
-        to,
-        type,
-        mediaUrl,
-        caption,
-    });
+        const sessionStatus = await whatsAppService.getSessionStatus(sessionId);
+        if (!sessionStatus || sessionStatus.status !== 'CONNECTED') {
+            throw new AppError('Session not active', 404, 'SESSION_NOT_ACTIVE');
+        }
 
-    res.json({ status: 'queued', jobId: job.id });
-});
+        const job = await messageQueue.add('media', {
+            sessionId,
+            to,
+            type,
+            mediaUrl,
+            caption,
+        });
+
+        const { actorType, actorId } = getActorInfo(req);
+        logAudit(
+            actorType,
+            actorId,
+            'MESSAGE_SEND_MEDIA',
+            req,
+            'session',
+            sessionId,
+            {
+                recipientHash: hashRecipient(to),
+                mediaType: type,
+                captionLength: caption?.length || 0,
+            },
+        ).catch(() => {});
+
+        res.json({ status: 'queued', jobId: job.id });
+    },
+);
 
 export const sendTemplate = asyncHandler(
-    async (req: Request, res: Response) => {
+    async (req: ApiKeyRequest, res: Response) => {
         const sessionId = safeSessionId(req);
         const { to, templateName, variables } = req.body;
 
@@ -210,6 +279,20 @@ export const sendTemplate = asyncHandler(
             templateName,
             variables: variables || {},
         });
+
+        const { actorType, actorId } = getActorInfo(req);
+        logAudit(
+            actorType,
+            actorId,
+            'MESSAGE_SEND_TEMPLATE',
+            req,
+            'session',
+            sessionId,
+            {
+                recipientHash: hashRecipient(to),
+                templateName,
+            },
+        ).catch(() => {});
 
         res.json({ status: 'queued', jobId: job.id });
     },
@@ -277,6 +360,20 @@ export const sendFile = asyncHandler(async (req: Request, res: Response) => {
             jobId: job.id,
         });
     }
+
+    const { actorType, actorId } = getActorInfo(req);
+    logAudit(
+        actorType,
+        actorId,
+        'MESSAGE_SEND_FILE',
+        req,
+        'session',
+        sessionId,
+        {
+            recipientHash: hashRecipient(to),
+            fileCount: files.length,
+        },
+    ).catch(() => {});
 
     res.json({ status: 'success', jobs });
 });

@@ -1,10 +1,27 @@
 import { Request, Response } from 'express';
 import templateService from '../services/templateService.js';
-import { logger } from '../app.js';
+import { logger } from '../utils/logger.js';
+import { logAudit, getActorInfo } from '../utils/audit.js';
 
-const createTemplate = async (req: Request, res: Response) => {
+interface TemplateAuthRequest extends Request {
+    apiKey?: { id: string; prefix: string; name: string };
+    admin?: boolean;
+}
+
+const createTemplate = async (req: TemplateAuthRequest, res: Response) => {
     try {
         const template = await templateService.createTemplate(req.body);
+
+        const { actorType, actorId } = getActorInfo(req);
+        logAudit(
+            actorType,
+            actorId,
+            'TEMPLATE_CREATE',
+            req,
+            'template',
+            template.name,
+        ).catch(() => {});
+
         res.status(201).json({
             status: 'success',
             data: { template },
@@ -70,11 +87,12 @@ const getTemplate = async (req: Request, res: Response) => {
     }
 };
 
-const updateTemplate = async (req: Request, res: Response) => {
+const updateTemplate = async (req: TemplateAuthRequest, res: Response) => {
     try {
         const { name } = req.params;
+        const templateName = Array.isArray(name) ? name[0] : name;
         const template = await templateService.updateTemplate(
-            Array.isArray(name) ? name[0] : name,
+            templateName,
             req.body,
         );
         if (!template) {
@@ -83,6 +101,17 @@ const updateTemplate = async (req: Request, res: Response) => {
                 message: 'Template not found',
             });
         }
+
+        const { actorType, actorId } = getActorInfo(req);
+        logAudit(
+            actorType,
+            actorId,
+            'TEMPLATE_UPDATE',
+            req,
+            'template',
+            templateName,
+        ).catch(() => {});
+
         res.json({
             status: 'success',
             data: { template },
@@ -96,18 +125,28 @@ const updateTemplate = async (req: Request, res: Response) => {
     }
 };
 
-const deleteTemplate = async (req: Request, res: Response) => {
+const deleteTemplate = async (req: TemplateAuthRequest, res: Response) => {
     try {
         const { name } = req.params;
-        const template = await templateService.deleteTemplate(
-            Array.isArray(name) ? name[0] : name,
-        );
+        const templateName = Array.isArray(name) ? name[0] : name;
+        const template = await templateService.deleteTemplate(templateName);
         if (!template) {
             return res.status(404).json({
                 status: 'error',
                 message: 'Template not found',
             });
         }
+
+        const { actorType, actorId } = getActorInfo(req);
+        logAudit(
+            actorType,
+            actorId,
+            'TEMPLATE_DELETE',
+            req,
+            'template',
+            templateName,
+        ).catch(() => {});
+
         res.json({
             status: 'success',
             message: 'Template deleted successfully',

@@ -1,11 +1,18 @@
 import express from 'express';
 import * as sessionController from '../controllers/sessionController.js';
-import { validate, schemas } from '../middlewares/validationMiddleware.js';
+import {
+    validate,
+    validateParams,
+    schemas,
+} from '../middlewares/validationMiddleware.js';
 import { upload } from '../config/upload.js';
 import { combinedAuth } from '../middlewares/combinedAuth.js';
 import { sessionOwnershipGuard } from '../middlewares/sessionOwnershipGuard.js';
 
 const router = express.Router();
+
+// Param validation
+router.param('sessionId', validateParams(schemas.sessionIdParam));
 
 // All routes require API key OR admin auth
 router.use(combinedAuth);

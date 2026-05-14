@@ -1,5 +1,14 @@
 import { fileTypeFromBuffer } from 'file-type';
 import fs from 'fs';
+import { logger } from './logger.js';
+
+function isControlChar(byte: number): boolean {
+    return (
+        (byte >= 0x00 && byte <= 0x08) ||
+        (byte >= 0x0b && byte <= 0x0c) ||
+        (byte >= 0x0e && byte <= 0x1f)
+    );
+}
 
 export const validateFileSignature = async (
     filePath: string,
@@ -9,20 +18,25 @@ export const validateFileSignature = async (
         // Read first 4100 bytes (usually enough for magic numbers)
         const fd = await fs.promises.open(filePath, 'r');
         const buffer = Buffer.alloc(4100);
-        await fd.read(buffer, 0, 4100, 0);
+        const { bytesRead } = await fd.read(buffer, 0, 4100, 0);
         await fd.close();
 
-        const type = await fileTypeFromBuffer(buffer);
+        const sample = buffer.subarray(0, bytesRead);
+        const type = await fileTypeFromBuffer(sample);
 
         if (!type) {
             // Some text files might not have magic numbers.
-            // If claimed is text/*, we might be lenient or do extra checks.
+            // If claimed is text/*, perform binary heuristic to prevent bypass.
             if (claimedMimeType.startsWith('text/')) {
-                // Basic check for binary characters?
-                // For now, if we can't determine type, and it claims to be text, we might allow it
-                // BUT better to be strict if we want security.
-                // However, csv/txt often don't have signatures.
-                return true;
+                let controlCount = 0;
+                for (let i = 0; i < sample.length; i++) {
+                    if (isControlChar(sample[i])) {
+                        controlCount++;
+                    }
+                }
+                const ratio =
+                    sample.length > 0 ? controlCount / sample.length : 0;
+                return ratio <= 0.05; // Reject if >5% control characters
             }
             return false;
         }
@@ -52,7 +66,7 @@ export const validateFileSignature = async (
 
         return false;
     } catch (error) {
-        console.error('File signature validation error:', error);
+        logger.error({ err: error }, 'File signature validation error');
         return false;
     }
 };

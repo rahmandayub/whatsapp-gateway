@@ -1,4 +1,4 @@
-import { writeEnv, generateSecret } from './lib/env-writer.js';
+import { writeEnv, generateSecret, EnvEntry } from './lib/env-writer.js';
 import {
     runDockerCompose,
     waitForPostgres,
@@ -34,53 +34,105 @@ async function main() {
         return;
     }
 
-    const env: Record<string, string> = {};
-
     // Database
-    env.DB_HOST = await ask('Database host', 'localhost');
-    env.DB_PORT = await ask('Database port', '5433');
-    env.DB_USER = await ask('Database user', 'postgres');
-    env.DB_PASSWORD = await ask('Database password', generateSecret(16));
-    env.DB_NAME = await ask('Database name', 'whatsapp_gateway');
-    env.DATABASE_URL = `postgres://${env.DB_USER}:${env.DB_PASSWORD}@${env.DB_HOST}:${env.DB_PORT}/${env.DB_NAME}`;
+    const dbHost = await ask('Database host', 'localhost');
+    const dbPort = await ask('Database port', '5433');
+    const dbUser = await ask('Database user', 'postgres');
+    const dbPassword = await ask('Database password', generateSecret(16));
+    const dbName = await ask('Database name', 'whatsapp_gateway');
 
     // Redis
-    env.REDIS_HOST = await ask('Redis host', 'localhost');
-    env.REDIS_PORT = await ask('Redis port', '6379');
-    env.REDIS_PASSWORD = await ask('Redis password', generateSecret(16));
+    const redisHost = await ask('Redis host', 'localhost');
+    const redisPort = await ask('Redis port', '6379');
+    const redisPassword = await ask('Redis password', generateSecret(16));
 
     // Admin credentials
-    env.ADMIN_USERNAME = await ask('Admin username', 'admin');
+    const adminUsername = await ask('Admin username', 'admin');
     const adminPw = await ask('Admin password (leave blank to auto-generate)');
     const finalAdminPw = adminPw || generateSecret(12);
     if (!adminPw) {
         console.log(`\n  Auto-generated admin password: ${finalAdminPw}\n`);
     }
-    env.ADMIN_PASSWORD_HASH = bcrypt.hashSync(finalAdminPw, 12);
+    const adminPasswordHash = bcrypt.hashSync(finalAdminPw, 12);
 
     // Secrets
-    env.JWT_SECRET = generateSecret(32);
-    env.WEBHOOK_SIGNING_SECRET = generateSecret(32);
-
-    const masterKey = generateSecret(32);
-    env.MASTER_API_KEY = masterKey;
-    env.MASTER_API_KEY_HASH = bcrypt.hashSync(masterKey, 12);
+    const jwtSecret = generateSecret(32);
+    const webhookSigningSecret = generateSecret(32);
+    const keyEncryptionSecret = generateSecret(32);
+    const masterApiKeyHash = bcrypt.hashSync(generateSecret(32), 12);
 
     // Deployment
-    env.PORT = await ask('Server port', '3000');
-    env.NODE_ENV = await ask('Node environment', 'development');
-    env.TRUST_PROXY = await ask('Trust proxy', 'loopback');
-    env.CORS_ORIGINS = await ask(
+    const port = await ask('Server port', '3000');
+    const nodeEnv = await ask('Node environment', 'development');
+    const trustProxy = await ask('Trust proxy', 'loopback');
+    const corsOrigins = await ask(
         'CORS origins (comma separated, blank for dev)',
         '',
     );
-    env.LOG_LEVEL = await ask('Log level', 'info');
+    const logLevel = await ask('Log level', 'info');
 
-    writeEnv(env);
+    const entries: EnvEntry[] = [
+        {
+            comment: 'Generate secrets with: openssl rand -hex 32',
+            key: '',
+            value: '',
+        },
+        {
+            comment:
+                'For KEY_ENCRYPTION_SECRET, you MUST use exactly 64 hex characters.',
+            key: '',
+            value: '',
+        },
+        { blankLine: true, key: '', value: '' },
+        { key: 'PORT', value: port },
+        { key: 'DB_USER', value: dbUser },
+        { key: 'DB_PASSWORD', value: dbPassword },
+        { key: 'DB_NAME', value: dbName },
+        { key: 'DB_PORT', value: dbPort },
+        { key: 'DB_HOST', value: dbHost },
+        { key: 'REDIS_HOST', value: redisHost },
+        { key: 'REDIS_PORT', value: redisPort },
+        { key: 'REDIS_PASSWORD', value: redisPassword },
+        { key: 'LOG_LEVEL', value: logLevel },
+        {
+            key: 'DATABASE_URL',
+            value: `postgres://${dbUser}:${dbPassword}@${dbHost}:${dbPort}/${dbName}`,
+        },
+        { blankLine: true, key: '', value: '' },
+        { comment: 'Admin credentials', key: '', value: '' },
+        { key: 'ADMIN_USERNAME', value: adminUsername },
+        { key: 'ADMIN_PASSWORD_HASH', value: adminPasswordHash },
+        { key: 'JWT_SECRET', value: jwtSecret },
+        { key: 'MASTER_API_KEY_HASH', value: masterApiKeyHash },
+        { blankLine: true, key: '', value: '' },
+        {
+            comment: 'API key encryption (64 hex chars = 32 bytes)',
+            key: '',
+            value: '',
+        },
+        { key: 'KEY_ENCRYPTION_SECRET', value: keyEncryptionSecret },
+        { blankLine: true, key: '', value: '' },
+        { comment: 'Webhook signing', key: '', value: '' },
+        { key: 'WEBHOOK_SIGNING_SECRET', value: webhookSigningSecret },
+        { blankLine: true, key: '', value: '' },
+        { comment: 'Webhook security', key: '', value: '' },
+        { key: 'WEBHOOK_ALLOW_HTTP', value: 'false' },
+        { blankLine: true, key: '', value: '' },
+        { comment: 'Security / Deployment', key: '', value: '' },
+        { key: 'NODE_ENV', value: nodeEnv },
+        { key: 'TRUST_PROXY', value: trustProxy },
+        { key: 'CORS_ORIGINS', value: corsOrigins },
+        { blankLine: true, key: '', value: '' },
+        { comment: 'Endpoint access control', key: '', value: '' },
+        { key: 'METRICS_PUBLIC', value: 'false' },
+        { key: 'METRICS_TOKEN', value: generateSecret(16) },
+        { key: 'DOCS_PUBLIC', value: 'false' },
+    ];
+
+    writeEnv(entries);
 
     console.log('\n=== Fresh configuration saved to .env ===');
-    console.log(`Admin username: ${env.ADMIN_USERNAME}`);
-    console.log(`Master API key: ${masterKey}`);
+    console.log(`Admin username: ${adminUsername}`);
     console.log(
         '\nKeep these credentials secure. They are not stored elsewhere.\n',
     );
@@ -94,7 +146,7 @@ async function main() {
         startDocker.toLowerCase() === 'yes'
     ) {
         runDockerCompose();
-        waitForPostgres(env.DB_HOST, env.DB_PORT);
+        waitForPostgres(dbHost, dbPort);
         runMigrations();
         console.log('\n=== Setup complete ===');
         console.log('Run "npm run backend:dev" to start the server.\n');
